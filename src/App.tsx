@@ -6,7 +6,7 @@ import { BatchDialog } from './components/BatchDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToolHub, type HubAction } from './components/ToolHub';
 import { Modal } from './components/Modal';
-import { Wordmark } from './components/Logo';
+import { BrandName, Wordmark } from './components/Logo';
 import { applyTheme, loadTheme, nextTheme, type ThemeMode } from './lib/theme';
 import { Icon } from './components/Icon';
 import { onToast, toast, errText, type ToastMsg } from './lib/toast';
@@ -436,7 +436,7 @@ function Home({
       <div className="home-sheet">
         <header className="home-head">
           <div className="home-title">
-            <h1>Acrobatics</h1>
+            <h1><BrandName /></h1>
             <p>Edit, sign, convert and organize PDFs. Drop files anywhere on this window to start.</p>
           </div>
           <div className="home-actions">

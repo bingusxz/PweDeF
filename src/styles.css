@@ -1,43 +1,37 @@
-/* ==========================================================================
-   Acrobatics: "Triplicate"
-   A carbonless business-form set. Light = the white original; dark = the
-   carbon sheet. Copy stocks (white, canary, blue, pink, green) colour tool
-   families; serial red is the only accent and marks only actions + selection.
-   ========================================================================== */
-
 :root {
+  --pencil-pointer: url('./pencil-cursor.png') 2 29, pointer;
   color-scheme: light;
   /* surfaces */
-  --desk: #dfe3ea; /* behind the documents */
-  --chrome: #eef0f4; /* titlebar + rails */
-  --paper: #ffffff; /* panels, the "original" */
-  --paper-2: #f6f7f9; /* hover / inset */
-  --paper-3: #eceff4; /* pressed / selected rows */
+  --desk: #e7d8bf; /* behind the documents */
+  --chrome: #f2e4cf; /* titlebar + rails */
+  --paper: #fff7e8; /* panels, the "original" */
+  --paper-2: #f8eddc; /* hover / inset */
+  --paper-3: #f0dfc9; /* pressed / selected rows */
   /* ink */
-  --ink: #1c2340;
-  --ink-2: #444c6b;
-  --ink-3: #5f6785;
-  --rule: #d3d8e2;
-  --rule-2: #b9c0cf;
+  --ink: #401e41;
+  --ink-2: #63465c;
+  --ink-3: #705c64;
+  --rule: #deccb6;
+  --rule-2: #bca58e;
   /* the one accent */
-  --serial: #c8102e;
-  --serial-hover: #a50d26;
+  --serial: #a44012;
+  --serial-hover: #83330e;
   --serial-ink: #ffffff;
-  --serial-wash: rgba(200, 16, 46, 0.08);
+  --serial-wash: rgba(169, 68, 22, 0.08);
   /* copy stocks */
   --copy-white: #ffffff;
-  --copy-yellow: #f3dd72;
-  --copy-blue: #a8c6ec;
-  --copy-pink: #f2b4c0;
-  --copy-green: #b6dcb1;
-  --stock-ink: #1c2340;
+  --copy-yellow: #ffcf67;
+  --copy-blue: #c9bdd8;
+  --copy-pink: #f1b6a0;
+  --copy-green: #c9d5b4;
+  --stock-ink: #401e41;
   /* status */
   --ok: #1d7a3e;
   --warn: #9a6400;
   /* logo */
   --logo-paper: #ffffff;
-  --logo-ink: #1c2340;
-  --logo-edge: #1c2340;
+  --logo-ink: #401e41;
+  --logo-edge: #401e41;
   /* type */
   --ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --label: 'Barlow Condensed', 'Segoe UI', sans-serif;
@@ -50,62 +44,62 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
-    --desk: #0c1022;
-    --chrome: #11152a;
-    --paper: #171c33;
-    --paper-2: #1d2340;
-    --paper-3: #252c4d;
-    --ink: #e9ecf5;
-    --ink-2: #bfc5da;
-    --ink-3: #9aa1bb;
-    --rule: #2a3152;
-    --rule-2: #3a4269;
-    --serial: #ff5a69;
-    --serial-hover: #ff7582;
+    --desk: #211822;
+    --chrome: #2a1f2b;
+    --paper: #332834;
+    --paper-2: #3c2e3b;
+    --paper-3: #483747;
+    --ink: #fff1dd;
+    --ink-2: #dfcbbf;
+    --ink-3: #c7b1aa;
+    --rule: #51404d;
+    --rule-2: #705865;
+    --serial: #ffad77;
+    --serial-hover: #ffc497;
     --serial-ink: #1a0a0d;
-    --serial-wash: rgba(255, 90, 105, 0.12);
+    --serial-wash: rgba(255, 173, 119, 0.12);
     --copy-yellow: #d8c15c;
     --copy-blue: #8eaedb;
     --copy-pink: #d99aa8;
     --copy-green: #98c693;
-    --copy-white: #e9ecf5;
+    --copy-white: #fff1dd;
     --stock-ink: #12162b;
     --ok: #6fd391;
     --warn: #f0c46a;
-    --logo-paper: #e9ecf5;
+    --logo-paper: #fff1dd;
     --logo-ink: #12162b;
-    --logo-edge: #0c1022;
+    --logo-edge: #211822;
     --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 22px rgba(0, 0, 0, 0.35);
     --shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.5), 0 18px 44px rgba(0, 0, 0, 0.55);
   }
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --desk: #0c1022;
-  --chrome: #11152a;
-  --paper: #171c33;
-  --paper-2: #1d2340;
-  --paper-3: #252c4d;
-  --ink: #e9ecf5;
-  --ink-2: #bfc5da;
-  --ink-3: #9aa1bb;
-  --rule: #2a3152;
-  --rule-2: #3a4269;
-  --serial: #ff5a69;
-  --serial-hover: #ff7582;
+  --desk: #211822;
+  --chrome: #2a1f2b;
+  --paper: #332834;
+  --paper-2: #3c2e3b;
+  --paper-3: #483747;
+  --ink: #fff1dd;
+  --ink-2: #dfcbbf;
+  --ink-3: #c7b1aa;
+  --rule: #51404d;
+  --rule-2: #705865;
+  --serial: #ffad77;
+  --serial-hover: #ffc497;
   --serial-ink: #1a0a0d;
-  --serial-wash: rgba(255, 90, 105, 0.12);
+  --serial-wash: rgba(255, 173, 119, 0.12);
   --copy-yellow: #d8c15c;
   --copy-blue: #8eaedb;
   --copy-pink: #d99aa8;
   --copy-green: #98c693;
-  --copy-white: #e9ecf5;
+  --copy-white: #fff1dd;
   --stock-ink: #12162b;
   --ok: #6fd391;
   --warn: #f0c46a;
-  --logo-paper: #e9ecf5;
+  --logo-paper: #fff1dd;
   --logo-ink: #12162b;
-  --logo-edge: #0c1022;
+  --logo-edge: #211822;
   --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 22px rgba(0, 0, 0, 0.35);
   --shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.5), 0 18px 44px rgba(0, 0, 0, 0.55);
 }
@@ -121,6 +115,7 @@ body,
   margin: 0;
 }
 body {
+  cursor: url('./pencil-cursor.png') 2 29, auto;
   background: var(--chrome);
   color: var(--ink);
   font: 13px/1.45 var(--ui);
@@ -133,7 +128,7 @@ body {
   color: var(--serial-ink);
 }
 .textLayer ::selection {
-  background: rgba(200, 16, 46, 0.28);
+  background: rgba(169, 68, 22, 0.28);
 }
 * {
   scrollbar-width: thin;
@@ -155,7 +150,7 @@ button {
   border: 1px solid var(--rule-2);
   border-radius: 3px;
   padding: 6px 12px;
-  cursor: pointer;
+  cursor: var(--pencil-pointer);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -169,19 +164,24 @@ button:disabled {
   opacity: 0.4;
   cursor: default;
 }
-button.primary {
-  background: var(--serial);
-  border-color: var(--serial);
-  color: var(--serial-ink);
-  font-family: var(--label);
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+button.primary, .toolbar .tb-btn.accent {
+  background: #ff9853 url('./paper-grain.png');
+  border: 1.5px solid #532b45;
+  border-radius: 7px 9px 7px 6px;
+  color: #351731;
+  font: 650 14px/1.3 var(--ui);
+  letter-spacing: 0;
+  text-transform: none;
+  box-shadow: 0 2px 0 #532b45;
 }
-button.primary:hover:not(:disabled) {
-  background: var(--serial-hover);
-  border-color: var(--serial-hover);
+button.primary:hover:not(:disabled), .toolbar .tb-btn.accent:hover:not(:disabled) {
+  background-color: #ffb273;
+  border-color: #532b45;
+  color: #351731;
+}
+button.primary:active:not(:disabled), .toolbar .tb-btn.accent:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 button.big {
   padding: 10px 20px;
@@ -340,29 +340,45 @@ code {
 .titlebar .tab {
   -webkit-app-region: no-drag;
 }
-.brand {
-  background: transparent;
-  border: none;
-  border-radius: 3px 3px 0 0;
-  padding: 0 12px;
-  height: 34px;
+.titlebar .brand, .titlebar .tab {
+  --fold: 9px;
+  position: relative;
+  height: 30px;
   margin-bottom: -1px;
-  border: 1px solid transparent;
-  border-bottom: none;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--rule-2);
+  border-bottom: 0;
+  border-radius: 4px 0 0 0;
+  background: var(--paper-2) url('./paper-grain.png');
+  clip-path: polygon(0 0, calc(100% - var(--fold)) 0, 100% var(--fold), 100% 100%, 0 100%);
 }
-.brand:hover:not(:disabled) {
-  background: var(--paper-2);
-  border-color: transparent;
+.titlebar :is(.brand, .tab)::after {
+  content: '';
+  position: absolute;
+  inset: -1px -1px auto auto;
+  width: var(--fold);
+  height: var(--fold);
+  background: var(--rule-2);
+  box-shadow: -1px 1px 0 var(--rule);
+  pointer-events: none;
 }
-.brand.on {
-  background: var(--paper);
-  border-color: var(--rule);
+.titlebar :is(.brand, .tab):hover { background-color: var(--paper-3); }
+.titlebar :is(.brand, .tab).on {
+  height: 35px;
+  background-color: var(--paper);
+  border-color: var(--ink-3);
+  color: var(--ink);
+  z-index: 1;
 }
+.titlebar :is(.brand, .tab).on::after { background: #ffd34d; }
+.titlebar .brand:focus-visible { outline-offset: -3px; }
 .wordmark {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
+.painted-wordmark { display: block; width: auto; height: 27px; }
+.home-title .painted-wordmark { height: clamp(60px, 6vw, 82px); }
 .wordmark-text {
   font-family: var(--label);
   font-weight: 700;
@@ -388,25 +404,11 @@ code {
   align-items: center;
   gap: 6px;
   max-width: 240px;
-  height: 34px;
-  padding: 0 6px 0 12px;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: 3px 3px 0 0;
-  color: var(--ink-3);
-  cursor: pointer;
-  margin-bottom: -1px;
+  flex: 0 0 auto;
+  color: var(--ink-2);
+  cursor: var(--pencil-pointer);
 }
-.tab:hover {
-  color: var(--ink);
-  background: var(--paper-2);
-}
-.tab.on {
-  background: var(--paper);
-  color: var(--ink);
-  border-color: var(--rule);
-  box-shadow: inset 0 2px 0 var(--serial);
-}
+.tab-x { flex-shrink: 0; }
 .tab-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -625,43 +627,51 @@ code {
 .form-line {
   width: 100%;
   display: grid;
-  grid-template-columns: 22px minmax(120px, auto) 1fr;
-  align-items: baseline;
-  gap: 4px 10px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-areas: "icon name" "icon desc";
+  align-items: center;
+  gap: 1px 10px;
+  padding: 8px 12px;
   background: transparent;
-  border: none;
-  border-radius: 0;
-  padding: 9px 12px;
+  border: 0;
   text-align: left;
 }
-.form-line:hover:not(:disabled) {
-  background: var(--serial-wash);
-  border: none;
-}
-.form-line:hover .form-line-name {
-  color: var(--serial);
-}
 .form-line-icon {
-  color: var(--ink-3);
-  align-self: center;
+  grid-area: icon;
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  background: var(--paper-2);
+  color: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: 7px 5px 7px 5px;
 }
-.form-line:hover .form-line-icon {
-  color: var(--serial);
+.form-line-name { grid-area: name; font: 600 14px/1.25 var(--ui); color: var(--ink); }
+.form-line-desc { grid-area: desc; font: 12px/1.35 var(--ui); color: var(--ink-3); }
+.log-row:is(:hover, :focus-visible):not(:disabled) {
+  background-color: var(--paper-3);
+  box-shadow: inset 3px 0 var(--serial);
 }
-.form-line-name {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--ink);
-  white-space: nowrap;
+.form-line:focus-visible, .log-row:focus-visible { outline-offset: -2px; }
+.form-line:active:not(:disabled) { background-color: var(--serial-wash); }
+.form-line { position: relative; }
+.form-line .form-line-icon { background: transparent; border-color: transparent; }
+.form-line:is(:hover, :focus-visible):not(:disabled) {
+  background: transparent;
+  border-color: transparent;
 }
-.form-line-desc {
-  color: var(--ink-3);
-  font-size: 12.5px;
-  text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.form-line:is(:hover, :focus-visible)::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: calc(50% - 8px);
+  width: 4px;
+  height: 16px;
+  background: var(--serial);
+  clip-path: polygon(40% 4%,100% 0,65% 92%,0 100%);
 }
+.form-line:is(:hover, :focus-visible) .form-line-icon { color: var(--serial); }
+.form-line:active:not(:disabled) .form-line-name { color: var(--serial); }
 .empty-line,
 .note-line {
   color: var(--ink-3);
@@ -1040,7 +1050,7 @@ code {
   padding: 6px;
   border-radius: 3px;
   border: 1.5px solid transparent;
-  cursor: pointer;
+  cursor: var(--pencil-pointer);
   color: var(--ink-3);
   font-family: var(--typed);
   font-size: 11.5px;
@@ -1158,15 +1168,15 @@ code {
   z-index: 1;
   user-select: text;
 }
-/* Edit mode: every editable run of text is outlined, like Acrobat's text blocks */
+/* Indicate the target under the pointer without obscuring the page. */
 .page.tool-editText .textLayer span {
   cursor: text;
-  outline: 1px solid rgba(29, 95, 191, 0.45);
+  outline: none;
   outline-offset: 1px;
 }
-.page.tool-editText .textLayer span:hover {
-  outline: 1.5px solid #c8102e;
-  background: rgba(200, 16, 46, 0.1);
+.page.tool-editText .textLayer span[data-item]:hover {
+  outline: 1.5px solid #a44012;
+  background: rgba(169, 68, 22, 0.1);
 }
 .page.tool-editText .textLayer br {
   display: none;
@@ -1186,14 +1196,14 @@ g.svg-annot.interactive {
   pointer-events: all;
 }
 .svg-annot.selected {
-  filter: drop-shadow(0 0 1.5px #c8102e) drop-shadow(0 0 1px #c8102e);
+  filter: drop-shadow(0 0 1.5px #a44012) drop-shadow(0 0 1px #a44012);
 }
 .hit {
   fill: rgba(243, 221, 114, 0.55);
 }
 .hit.active {
-  fill: rgba(200, 16, 46, 0.3);
-  stroke: #c8102e;
+  fill: rgba(169, 68, 22, 0.3);
+  stroke: #a44012;
 }
 .annot-html {
   position: absolute;
@@ -1212,7 +1222,7 @@ g.svg-annot.interactive {
   pointer-events: none;
 }
 .html-annot.selected {
-  outline: 1.5px dashed #c8102e;
+  outline: 1.5px dashed #a44012;
   outline-offset: 2px;
 }
 .html-annot .fill {
@@ -1220,8 +1230,8 @@ g.svg-annot.interactive {
   height: 100%;
 }
 .html-annot .fill.redact {
-  background: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.85) 0 6px, rgba(200, 16, 46, 0.85) 6px 12px);
-  outline: 1px solid #c8102e;
+  background: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.85) 0 6px, rgba(169, 68, 22, 0.85) 6px 12px);
+  outline: 1px solid #a44012;
 }
 .html-annot img {
   width: 100%;
@@ -1247,11 +1257,11 @@ g.svg-annot.interactive {
 }
 .text-edit {
   pointer-events: auto;
-  outline: 1.5px solid #c8102e !important;
+  outline: 1.5px solid #a44012 !important;
   outline-offset: 0;
   user-select: text;
   cursor: text;
-  caret-color: #c8102e;
+  caret-color: #a44012;
 }
 .move-snap {
   position: relative;
@@ -1259,7 +1269,7 @@ g.svg-annot.interactive {
 .move-frame {
   position: absolute;
   inset: -1px;
-  border: 1.5px dashed #c8102e;
+  border: 1.5px dashed #a44012;
   pointer-events: none;
 }
 .page.tool-move .capture {
@@ -1276,7 +1286,7 @@ g.svg-annot.interactive {
   background: transparent !important;
 }
 .t-replace .text-edit {
-  outline: 1px dashed #c8102e !important;
+  outline: 1px dashed #a44012 !important;
 }
 .t-text .text-edit {
   background: rgba(255, 255, 255, 0.9) !important;
@@ -1311,7 +1321,7 @@ g.svg-annot.interactive {
   min-height: 80px;
   background: transparent;
   border: none;
-  color: #1c2340;
+  color: #401e41;
   resize: vertical;
 }
 .resize-handle {
@@ -1320,7 +1330,7 @@ g.svg-annot.interactive {
   bottom: -6px;
   width: 11px;
   height: 11px;
-  background: #c8102e;
+  background: #a44012;
   border: 2px solid #fff;
   cursor: nwse-resize;
   pointer-events: auto;
@@ -1337,8 +1347,8 @@ g.svg-annot.interactive {
   margin-left: -10px;
   border-radius: 50%;
   background: #fff;
-  border: 1.5px solid #c8102e;
-  color: #c8102e;
+  border: 1.5px solid #a44012;
+  color: #a44012;
   display: grid;
   place-items: center;
   cursor: grab;
@@ -1352,7 +1362,7 @@ g.svg-annot.interactive {
   left: 50%;
   width: 1px;
   height: 10px;
-  background: #c8102e;
+  background: #a44012;
 }
 .form-layer {
   position: absolute;
@@ -1376,15 +1386,15 @@ g.svg-annot.interactive {
   padding: 0 3px;
   font-family: Helvetica, Arial, sans-serif;
   resize: none;
-  caret-color: #c8102e;
+  caret-color: #a44012;
 }
 .ff-text:focus,
 .ff-select:focus {
   background: rgba(255, 255, 255, 0.96);
-  outline: 2px solid #c8102e;
+  outline: 2px solid #a44012;
 }
 .ff-check {
-  accent-color: #c8102e;
+  accent-color: #a44012;
 }
 .ff-sig {
   background: rgba(243, 221, 114, 0.4);
@@ -1402,6 +1412,9 @@ g.svg-annot.interactive {
   inset: 0;
   z-index: 6;
   cursor: crosshair;
+}
+.page.tool-ink .capture {
+  cursor: url('./pencil-cursor.png') 2 29, crosshair;
 }
 .page.tool-hand .capture {
   cursor: grab;
@@ -1670,7 +1683,7 @@ g.svg-annot.interactive {
   aspect-ratio: 10 / 3;
   background: #fff;
   border: 1px solid var(--rule-2);
-  border-bottom: 2px solid #1c2340;
+  border-bottom: 2px solid #401e41;
   cursor: crosshair;
   touch-action: none;
   color-scheme: light;
@@ -1691,13 +1704,13 @@ g.svg-annot.interactive {
   justify-content: center;
   overflow: hidden;
   white-space: nowrap;
-  border: 1.5px solid #d3d8e2;
+  border: 1.5px solid #deccb6;
 }
 .font-pick button.on {
-  border-color: #c8102e;
+  border-color: #a44012;
 }
 .font-pick button:hover {
-  background: #f6f7f9 !important;
+  background: #f8eddc !important;
 }
 .sig-grid {
   display: grid;
@@ -1796,7 +1809,7 @@ g.svg-annot.interactive {
   gap: 4px;
   padding: 14px;
   background: #fbfbf8;
-  border: 1px solid #d3d8e2;
+  border: 1px solid #deccb6;
   color-scheme: light;
 }
 .impression {
@@ -1816,7 +1829,7 @@ g.svg-annot.interactive {
 }
 .impression:hover:not(:disabled) {
   background: #fff;
-  border-color: #c8102e;
+  border-color: #a44012;
 }
 .impression:hover img {
   opacity: 1;
@@ -1847,7 +1860,7 @@ g.svg-annot.interactive {
   place-items: center;
   padding: 10px;
   background: #fbfbf8;
-  border: 1px dashed #d3d8e2;
+  border: 1px dashed #deccb6;
   color-scheme: light;
 }
 .stamp-proof img {
@@ -1869,7 +1882,7 @@ g.svg-annot.interactive {
   padding: 10px 12px;
   border: 1px solid var(--rule-2);
   border-radius: 2px;
-  cursor: pointer;
+  cursor: var(--pencil-pointer);
 }
 .choice:has(input:checked) {
   border-color: var(--serial);
@@ -1936,4 +1949,189 @@ g.svg-annot.interactive {
     animation-duration: 1ms !important;
     transition-duration: 1ms !important;
   }
+}
+
+/* The grain sits on the stationery surfaces, outside the document canvas. */
+.home, .home-sheet, .form-section, .form-section-title, .toolbar, .modal {
+  background-image: url('./paper-grain.png');
+}
+.home-head {
+  position: relative;
+  background-color: var(--paper-2);
+  background-image: url('./paper-grain.png');
+  border-radius: 2px 2px 0 0;
+}
+
+.form-section {
+  border-radius: 3px 7px 4px 2px;
+  box-shadow: 2px 3px 0 color-mix(in srgb, var(--rule-2) 42%, transparent);
+}
+.form-section-title { border-radius: 2px 6px 0 0; }
+
+:root[data-theme='dark'] .painted-wordmark {
+  background: #fff3dc;
+  padding: 2px 5px;
+  border-radius: 3px 6px 3px 5px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .painted-wordmark {
+    background: #fff3dc;
+    padding: 2px 5px;
+    border-radius: 3px 6px 3px 5px;
+  }
+}
+
+.home-head { align-items: center; padding-block: 18px; }
+.home-actions { gap: 6px; }
+.find-field {
+  max-width: none;
+  padding: 8px 12px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 7px;
+}
+.find-field:focus-within { outline: 2px solid var(--serial); outline-offset: 1px; }
+.find-field input { min-width: 0; }
+.form-section-title, .filing-log h2 {
+  font: 650 15px/1.35 var(--ui);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.log-name { grid-column: 1 / -1; overflow-wrap: anywhere; white-space: normal; }
+.log-row { padding: 9px 8px; }
+.editor :is(.toolbar .icon-btn, .rail-btn, .seg button, .thick).on {
+  background: color-mix(in srgb, var(--copy-yellow) 54%, var(--paper)) url('./paper-grain.png');
+  color: var(--stock-ink);
+  border-color: color-mix(in srgb, var(--copy-yellow) 76%, var(--stock-ink));
+  box-shadow: none;
+}
+.editor :is(.toolbar .icon-btn, .rail-btn, .seg button, .thick):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+.thumb.current .thumb-canvas { outline: 2px solid var(--serial); outline-offset: 2px; }
+@media (max-width: 880px) {
+  .home-body { grid-template-columns: minmax(0, 1fr); }
+  .hub { border-right: 0; }
+  .filing-log { border-top: 1px solid var(--rule); }
+}
+
+/* One native cursor across the Electron renderer, including PDF.js tool layers. */
+html, body, #root, #root * {
+  cursor: var(--pencil-pointer) !important;
+}
+/* Tool groups as individual sheets on the home desk. */
+.home-body .form-section,
+.home-body .filing-log {
+  border: 1px solid var(--rule);
+  border-radius: 1px;
+  background: var(--paper) url('./paper-grain.png');
+  box-shadow: 0 1px 1px color-mix(in srgb, var(--ink) 12%, transparent),
+              1px 3px 5px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.home-body .form-section-title { border-radius: 0; }
+.home-body .filing-log {
+  align-self: start;
+  margin: 22px 16px;
+  padding: 15px 14px 18px;
+}
+/* Compact desktop windows can show descriptions beside the tool name. */
+@media (min-width: 1101px) and (max-height: 1200px) {
+  .home { padding: 14px 20px; }
+  .home-head { padding: 12px 24px; }
+  .home-title .painted-wordmark { height: 48px; }
+  .home-title p { max-width: none; }
+  .hub { padding: 14px 20px 16px; }
+  .find-field { margin-bottom: 12px; padding-block: 5px; }
+  .form-col { gap: 12px; }
+  .form-section-title { padding-block: 4px; }
+  .form-line {
+    grid-template-columns: 23px auto minmax(0, 1fr);
+    grid-template-areas: "icon name desc";
+    gap: 8px;
+    padding: clamp(2px, calc(1.9vh - 12px), 6px) 10px;
+    min-height: 28px;
+  }
+  .form-line-icon { width: 22px; height: 22px; padding: 2px; }
+  .form-line-desc { text-align: end; }
+  .home-body .filing-log { margin-block: 14px; }
+}
+@media (min-width: 881px) and (max-width: 1100px) {
+  .home-body { grid-template-columns: minmax(0, 1fr) 210px; }
+  .form-set { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .form-col + .form-col { margin-top: 0; }
+  .home { padding: 12px; }
+  .hub { padding: 14px; }
+  .form-line { padding-block: 5px; }
+}
+/* Lift the paper surface while the button's hit area stays in place. */
+.home :is(.form-line, .log-row) {
+  position: relative;
+  isolation: isolate;
+}
+.home :is(.form-line, .log-row)::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--paper) url('./paper-grain.png');
+  opacity: 0;
+  transform-origin: left center;
+}
+@media (hover: hover) {
+  .home :is(.form-line, .log-row):hover:not(:disabled)::after {
+    opacity: 1;
+    box-shadow: 1px 3px 5px color-mix(in srgb, var(--ink) 20%, transparent);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .home :is(.form-line, .log-row)::after {
+    transition: transform 150ms var(--ease), opacity 150ms ease, box-shadow 150ms ease;
+  }
+  .home :is(.form-line, .log-row):hover:not(:disabled)::after {
+    transform: translateY(-1px) rotate(-0.25deg);
+  }
+  .home :is(.form-line, .log-row):active:not(:disabled)::after {
+    transform: none;
+    box-shadow: none;
+    transition-duration: 60ms;
+  }
+}
+.editor-pencil {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: 32px;
+  height: 32px;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+#root .editor:has(> .editor-pencil:not([hidden])),
+#root .editor:has(> .editor-pencil:not([hidden])) * { cursor: none !important; }
+
+.editor .toolbar, .editor .panel-toolbar, .editor .rail, .editor .thumbs {
+  background-image: url('./paper-grain.png');
+}
+.editor .toolbar { box-shadow: 0 2px 4px color-mix(in srgb, var(--ink) 9%, transparent); }
+.editor :is(.toolbar, .panel-toolbar) .icon-btn {
+  border-radius: 5px 7px 5px 4px;
+}
+.editor :is(.toolbar, .panel-toolbar) .icon-btn:hover:not(:disabled):not(.on),
+.editor .rail-btn:hover:not(:disabled):not(.on) {
+  background: var(--paper-2) url('./paper-grain.png');
+  border-color: var(--rule-2);
+  box-shadow: 0 2px 1px color-mix(in srgb, var(--ink) 16%, transparent);
+}
+.editor .rail-btn {
+  font: 600 11px/1.4 var(--ui);
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 4px 7px 5px 3px;
+}
+.editor .panel-toolbar { background-color: var(--paper-2); }
+.editor .thumbs { background-color: var(--desk); padding-top: 14px; }
+.editor .thumb.current .thumb-canvas {
+  outline: 1px solid var(--serial);
+  outline-offset: 2px;
+  box-shadow: 2px 3px 0 var(--paper), 3px 4px 0 var(--rule-2);
 }

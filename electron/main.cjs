@@ -1,9 +1,12 @@
-// Acrobatics — Electron main process.
+// PweDeF — Electron main process.
 // Owns windows, native dialogs, file system access, and auto-update.
 const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, Menu, nativeTheme } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { pathToFileURL } = require('node:url');
+
+// Keep existing settings and recent files across the product rename.
+app.setPath('userData', path.join(app.getPath('appData'), 'Acrobatics'));
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 const DIST = path.join(__dirname, '..', 'dist');
@@ -53,8 +56,8 @@ const CSP = [
 
 // Caption-button strip colours, matched to the titlebar tokens in styles.css.
 const CHROME = {
-  light: { color: '#eef0f4', symbolColor: '#1c2340', bg: '#e4e7ed' },
-  dark: { color: '#11152a', symbolColor: '#e9ecf5', bg: '#0c1022' },
+  light: { color: '#f2e4cf', symbolColor: '#401e41', bg: '#e7d8bf' },
+  dark: { color: '#2a1f2b', symbolColor: '#fff1dd', bg: '#211822' },
 };
 const chrome = () => CHROME[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
 
@@ -65,7 +68,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: chrome().bg,
-    title: 'Acrobatics',
+    title: 'PweDeF',
     icon: path.join(__dirname, 'icon.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: chrome().color, symbolColor: chrome().symbolColor, height: 40 },
@@ -190,6 +193,7 @@ ipcMain.handle('app:ready', async () => {
 // ---------- installed fonts (so edited text keeps the PDF's own typeface) ----------
 // Windows lists fonts in the registry: "Tahoma Bold (TrueType)" -> tahomabd.ttf
 let fontIndex = null;
+const installedFaces = new Map();
 const normFont = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 function buildFontIndex() {
   if (fontIndex) return fontIndex;
@@ -219,25 +223,53 @@ function buildFontIndex() {
       const italic = /\b(italic|oblique)\b/i.test(name);
       const family = name.replace(/\b(regular|bold|italic|oblique)\b/gi, '').replace(/\s+/g, ' ').trim();
       const key = normFont(family) + (bold ? '|b' : '') + (italic ? '|i' : '');
-      if (!fontIndex.has(key)) fontIndex.set(key, { family, bold, italic, file });
+      const face = { family, bold, italic, file };
+      if (!fontIndex.has(key)) fontIndex.set(key, face);
+      installedFaces.set(normFont(name), face);
     }
   }
   return fontIndex;
 }
 
 /** Map a PDF font name like "ABCDEF+Tahoma-Bold" or "TimesNewRomanPS-BoldItalicMT" to an installed font. */
-function matchPdfFont(pdfName) {
+let fontAliases;
+async function readFontAliases(index) {
+  const aliases = new Map();
+  const fontkit = require('@pdf-lib/fontkit');
+  for (const face of index.values()) {
+    try {
+      const font = fontkit.create(await fs.readFile(face.file));
+      for (const name of [font.postscriptName, font.fullName]) {
+        if (name) aliases.set(normFont(name), face);
+      }
+    } catch {
+      // Some registry entries point to removed or unsupported files.
+    }
+  }
+  return aliases;
+}
+
+async function matchPdfFont(pdfName) {
   const idx = buildFontIndex();
-  let n = String(pdfName || '').replace(/^[A-Z]{6}\+/, '');
-  const bold = /bold|black|heavy|semibold|demi/i.test(n);
-  const italic = /italic|oblique|\bit\b/i.test(n);
-  let base = n
-    .split(/[-,]/)[0]
-    .replace(/(PSMT|PS|MT)$/, '')
-    .replace(/(Bold|Italic|Oblique|Regular)+$/i, '');
-  const famKey = normFont(base);
+  const name = String(pdfName || '').replace(/^[A-Z]{6}\+/i, '');
+  // Word can emit ArialNarrow-Bold, Arial-BoldMT, or TimesNewRomanPSMT.
+  // Keep width and weight variants in the family when Windows lists that face.
+  const normalized = normFont(name).replace(/(?:ps)?mt$/, '');
+  const face = installedFaces.get(normalized) ||
+    installedFaces.get(normalized.replace(/ps(?=bold|italic|regular|$)/, ''));
+  if (face) return { ...face, exact: true };
+  const bold = /bold|black|heavy|demi/i.test(name);
+  const italic = /italic|oblique/i.test(name);
+  const famKey = normalized.replace(/(?:bold|italic|oblique|regular)+$/, '')
+    .replace(/ps$/, '');
   const pick = (b, i) => idx.get(famKey + (b ? '|b' : '') + (i ? '|i' : ''));
-  const hit = pick(bold, italic) || pick(bold, false) || pick(false, false);
+  let hit = pick(bold, italic);
+  if (!hit) {
+    fontAliases ??= readFontAliases(idx);
+    const alias = (await fontAliases).get(normFont(name));
+    if (alias) return { ...alias, exact: true };
+    hit = pick(bold, false) || pick(false, false);
+  }
   return hit ? { family: hit.family, bold, italic, file: hit.file, exact: hit.bold === bold && hit.italic === italic } : null;
 }
 
@@ -260,10 +292,7 @@ ipcMain.handle('fonts:load', async (_e, { family, bold, italic }) => {
   }
 });
 
-ipcMain.handle('theme:set', (_e, mode) => {
-  nativeTheme.themeSource = ['light', 'dark'].includes(mode) ? mode : 'system';
-});
-nativeTheme.on('updated', () => {
+function syncWindowTheme() {
   if (!win || win.isDestroyed()) return;
   const c = chrome();
   try {
@@ -272,7 +301,13 @@ nativeTheme.on('updated', () => {
     /* overlay unsupported on this platform */
   }
   win.setBackgroundColor(c.bg);
+}
+
+ipcMain.handle('theme:set', (_e, mode) => {
+  nativeTheme.themeSource = ['light', 'dark'].includes(mode) ? mode : 'system';
+  syncWindowTheme();
 });
+nativeTheme.on('updated', syncWindowTheme);
 
 ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('app:version', () => app.getVersion());

@@ -58,6 +58,8 @@ export type TextAnnot = Base &
     font?: 'sans' | 'serif' | 'mono';
     /** installed font family matched from the PDF (e.g. "Tahoma"), used for preview and embedding */
     family?: string;
+    sourceFace?: string;
+    previewFamily?: string;
     /** exact baseline (page units) and start x of the original text, for pixel-exact replacement */
     baseline?: number;
     startX?: number;

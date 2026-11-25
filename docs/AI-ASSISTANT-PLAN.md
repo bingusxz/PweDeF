@@ -1,6 +1,6 @@
 # AI assistant: plan (not built yet)
 
-The goal is a side panel where staff can ask a PDF questions and have it do the busywork. This is where Acrobatics can go well beyond Acrobat.
+The goal is a side panel where staff can ask a PDF questions and have it do the busywork. This is where PweDeF can go well beyond Acrobat.
 
 ## What it should do (by priority)
 

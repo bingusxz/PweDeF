@@ -1,3 +1,4 @@
+import pencilCursor from '../pencil-cursor.png';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadPdf, pdfjs, type PDFDocumentProxy } from '../lib/pdf';
 import type { Annot, DocTab, RedactAnnot, Rect, Snapshot, StyleState, Tool } from '../types';
@@ -65,6 +66,7 @@ const COLORS = ['#111111', '#c62828', '#1d5fbf', '#1f8a3b', '#d97706', '#6b3fbf'
 const HL_COLORS = ['#ffe14d', '#7ee08a', '#7cc7ff', '#ff9ccf', '#ffb35c'];
 
 export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
+  const pointerRef = useRef<HTMLImageElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   // bumps every time a freshly loaded document is shown; keys pages so they never show stale content
   const [loadId, setLoadId] = useState(0);
@@ -738,7 +740,17 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
 
   return (
     <EditorCtx.Provider value={api}>
-      <div className="editor">
+      <div className="editor"
+        onPointerMoveCapture={(event) => {
+          const pointer = pointerRef.current;
+          if (!pointer) return;
+          pointer.hidden = event.pointerType !== 'mouse' || !pointer.complete || !pointer.naturalWidth;
+          pointer.style.transform = `translate3d(${event.clientX - 2}px, ${event.clientY - 29}px, 0)`;
+        }}
+        onPointerLeave={() => { if (pointerRef.current) pointerRef.current.hidden = true; }}
+        onDragStartCapture={() => { if (pointerRef.current) pointerRef.current.hidden = true; }}
+      >
+        <img ref={pointerRef} className="editor-pencil" src={pencilCursor} alt="" hidden draggable={false} />
         {/* ---------- toolbar ---------- */}
         <div className="toolbar">
           <div className="tb-group">
@@ -760,6 +772,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
                   className={`icon-btn ${SHORT[t.tool] ? 'labeled' : ''} ${tool === t.tool ? 'on' : ''}`}
                   title={t.label}
                   aria-label={t.label}
+                  aria-pressed={tool === t.tool}
                   onClick={() => setTool(t.tool)}
                 >
                   <Icon name={t.icon} />
@@ -861,7 +874,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
                 ['comments', 'comments', 'Comments'],
               ] as const
             ).map(([k, icon, label]) => (
-              <button key={k} className={`rail-btn ${panel === k ? 'on' : ''}`} title={label} onClick={() => setPanel(panel === k ? null : k)}>
+              <button key={k} className={`rail-btn ${panel === k ? 'on' : ''}`} title={label} aria-pressed={panel === k} onClick={() => setPanel(panel === k ? null : k)}>
                 <Icon name={icon} size={20} />
                 <span>{label}</span>
               </button>
@@ -1043,6 +1056,7 @@ function ContextBar({
                 key={w}
                 className={`thick ${(sel?.width ?? style.width) === w ? 'on' : ''}`}
                 title={`${w} pt`}
+                aria-pressed={(sel?.width ?? style.width) === w}
                 onClick={() => (selected ? onChangeSelected((a) => ({ ...a, width: w }) as Annot) : setStyle({ ...style, width: w }))}
               >
                 <span style={{ height: Math.max(1, w * 0.9), background: color }} />
@@ -1056,13 +1070,19 @@ function ContextBar({
               step={0.25}
               value={sel?.width ?? style.width}
               aria-label="Thickness in points"
-              onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, width: +e.target.value }) as Annot) : setStyle({ ...style, width: +e.target.value }))}
+              onChange={(e) => {
+                const width = e.currentTarget.valueAsNumber;
+                if (!Number.isFinite(width) || width < 0.25 || width > 40) return;
+                if (selected) onChangeSelected((a) => ({ ...a, width }) as Annot);
+                else setStyle({ ...style, width });
+              }}
             />
           </div>
           <div className="seg small" role="group" aria-label="Line style">
             {[false, true].map((d) => (
               <button
                 key={String(d)}
+                aria-pressed={!!(sel ? sel.dash : style.dash) === d}
                 className={!!(sel ? sel.dash : style.dash) === d ? 'on' : ''}
                 onClick={() => (selected ? onChangeSelected((a) => ({ ...a, dash: d }) as Annot) : setStyle({ ...style, dash: d }))}
               >
@@ -1103,7 +1123,7 @@ function ContextBar({
             value={sel?.family ?? style.family}
             aria-label="Font"
             style={{ fontFamily: `"${sel?.family ?? style.family}"` }}
-            onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, family: e.target.value }) as Annot) : setStyle({ ...style, family: e.target.value }))}
+            onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, sourceFace: undefined, previewFamily: undefined, family: e.target.value }) as Annot) : setStyle({ ...style, family: e.target.value }))}
           >
             {!fonts.includes(sel?.family ?? style.family) && <option value={sel?.family ?? style.family}>{sel?.family ?? style.family}</option>}
             {fonts.map((f) => (
@@ -1125,14 +1145,14 @@ function ContextBar({
           <button
             className={`small style-btn ${(sel ? sel.bold : style.bold) ? 'on' : ''}`}
             aria-label="Bold"
-            onClick={() => (selected ? onChangeSelected((a) => ({ ...a, bold: !(a as any).bold }) as Annot) : setStyle({ ...style, bold: !style.bold }))}
+            onClick={() => (selected ? onChangeSelected((a) => ({ ...a, sourceFace: undefined, previewFamily: undefined, bold: !(a as any).bold }) as Annot) : setStyle({ ...style, bold: !style.bold }))}
           >
             <b>B</b>
           </button>
           <button
             className={`small style-btn ${(sel ? sel.italic : style.italic) ? 'on' : ''}`}
             aria-label="Italic"
-            onClick={() => (selected ? onChangeSelected((a) => ({ ...a, italic: !(a as any).italic }) as Annot) : setStyle({ ...style, italic: !style.italic }))}
+            onClick={() => (selected ? onChangeSelected((a) => ({ ...a, sourceFace: undefined, previewFamily: undefined, italic: !(a as any).italic }) as Annot) : setStyle({ ...style, italic: !style.italic }))}
           >
             <i>I</i>
           </button>

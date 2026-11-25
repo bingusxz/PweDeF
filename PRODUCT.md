@@ -1,6 +1,5 @@
 # Product
 
-<!-- impeccable:product-schema 1 -->
 
 ## Platform
 
@@ -36,7 +35,7 @@ Acrobat Pro's editing and signing depth combined with iLovePDF's breadth of one-
 
 ## Brand Commitments
 
-- Name: **Acrobatics**. It's a standalone brand, not Mandaue Foam branded, and must not resemble Adobe Acrobat.
+- Name: **PweDeF**. It's a standalone brand, not Mandaue Foam branded, and must not resemble Adobe Acrobat.
 - The owner wants it to feel unique. The feature set is what's fixed; the current visual design is explicitly not.
 
 ## Evidence on Hand

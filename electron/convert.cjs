@@ -78,7 +78,7 @@ async function viaLibreOffice(input, outDir, target = 'pdf') {
 }
 
 async function tempDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'acrobatics-'));
+  return fs.mkdtemp(path.join(os.tmpdir(), 'pwedef-'));
 }
 
 /** Convert an Office/text document at `input` to PDF bytes. */

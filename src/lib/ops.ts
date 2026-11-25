@@ -265,7 +265,7 @@ export async function setMetadata(bytes: Uint8Array, meta: { title?: string; aut
   if (meta.subject !== undefined) doc.setSubject(meta.subject);
   if (meta.keywords !== undefined) doc.setKeywords(meta.keywords.split(',').map((k) => k.trim()).filter(Boolean));
   doc.setModificationDate(new Date());
-  doc.setProducer('Acrobatics');
+  doc.setProducer('PweDeF');
   return save(doc);
 }
 

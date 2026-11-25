@@ -1,8 +1,8 @@
-# Acrobatics
+# PweDeF
 
 **An all-in-one PDF studio for Windows, built in-house.** You can edit, sign, convert, organize, redact and OCR PDFs. It's free per seat, needs no Adobe account, and updates itself from GitHub.
 
-Acrobatics is a clean-room application built on open-source engines (Mozilla **pdf.js** for rendering and **pdf-lib** for writing PDFs). It uses no Adobe code and follows the public PDF standard (ISO 32000).
+PweDeF is a clean-room application built on open-source engines (Mozilla **pdf.js** for rendering and **pdf-lib** for writing PDFs). It uses no Adobe code and follows the public PDF standard (ISO 32000).
 
 ## What it does
 
@@ -20,7 +20,7 @@ Acrobatics is a clean-room application built on open-source engines (Mozilla **p
 | **Scan** | OCR (English, Filipino and more) makes scanned PDFs searchable and selectable. |
 | **Batch** | Run watermark, numbering, rotate, flatten, optimize or set author across many files, optionally merging the results. |
 
-Tabs, drag-and-drop, recent files, keyboard shortcuts (V, H, E, T, W, I, U, S, N, D, R, O, L, A, X, plus Ctrl+S, Ctrl+Z, Ctrl+F and Ctrl+wheel zoom), and "Open with → Acrobatics" from Explorer are all supported.
+Tabs, drag-and-drop, recent files, keyboard shortcuts (V, H, E, T, W, I, U, S, N, D, R, O, L, A, X, plus Ctrl+S, Ctrl+Z, Ctrl+F and Ctrl+wheel zoom), and "Open with → PweDeF" from Explorer are all supported.
 
 ## Develop
 
@@ -50,14 +50,14 @@ tests/engine.test.ts   headless engine tests
 
 1. Push to `main`.
 2. The **Release** workflow type-checks, builds and tests. If anything fails, nothing is released.
-3. It stamps the version as `major.minor.<build number>` (for example `0.1.7`) and publishes `Acrobatics-Setup-0.1.7.exe` on this repo's **[Releases](https://github.com/bingusxz/acrobatics/releases)** page.
-4. Every installed Acrobatics checks hourly (and on launch), downloads in the background, and shows **"Restart to update"**. Users can also click **Check for updates** on the home screen.
+3. The workflow reads the version from package.json and publishes the Windows installer on this repo?s [Releases](https://github.com/bingusxz/acrobatics/releases) page. Bump the version for each new release.
+4. Every installed PweDeF checks hourly (and on launch), downloads in the background, and shows **"Restart to update"**. Users can also click **Check for updates** on the home screen.
 
 Pushes that only change `.md` files or `docs/` don't release. To start a new line (for example 0.2.x), change `version` in `package.json`.
 
 No setup is needed: the workflow publishes with GitHub's built-in token, and because the repo is public, installed apps download updates without any key. Only the repo owner and collaborators can push or publish releases.
 
-**First install:** send people `Acrobatics-Setup-*.exe` from the Releases page. After that it updates itself.
+**First install:** send people `PweDeF-Setup-*.exe` from the Releases page. After that it updates itself.
 The installer isn't code-signed yet, so Windows SmartScreen will warn on first run. See the roadmap.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) and [`docs/AI-ASSISTANT-PLAN.md`](docs/AI-ASSISTANT-PLAN.md).

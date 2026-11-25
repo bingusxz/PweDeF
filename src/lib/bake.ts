@@ -1,3 +1,4 @@
+import { embeddedFace } from './embeddedFace';
 // Writes pending annotations + form values into the PDF bytes using pdf-lib.
 import {
   PDFDocument,
@@ -22,6 +23,7 @@ import {
   setCharacterSqueeze,
   setWordSpacing,
   setTextRise,
+  moveTo, lineTo, stroke, setDashPattern, setLineWidth, setLineCap, setStrokingRgbColor,
   setTextRenderingMode,
   TextRenderingMode,
 } from 'pdf-lib';
@@ -287,18 +289,19 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         page.drawLine({ start: P(rr.x, yy), end: P(rr.x + rr.w, yy), thickness, color: col(a.color) });
       }
       break;
-    case 'ink':
-      for (let i = 1; i < a.points.length; i++) {
-        page.drawLine({
-          start: P(...a.points[i - 1]),
-          end: P(...a.points[i]),
-          thickness: a.width,
-          color: col(a.color),
-          lineCap: LineCapStyle.Round,
-          dashArray: a.dash ? [a.width * 3, a.width * 2] : undefined,
-        });
+    case 'ink': {
+      if (a.points.length < 2) break;
+      const first = P(...a.points[0]);
+      page.pushOperators(pushGraphicsState(), setLineWidth(a.width), setLineCap(LineCapStyle.Round),
+        setStrokingRgbColor(...hexToRgb01(a.color)), setDashPattern(a.dash ? [3 * a.width, 2 * a.width] : [], 0),
+        moveTo(first.x, first.y));
+      for (const point of a.points.slice(1)) {
+        const next = P(...point);
+        page.pushOperators(lineTo(next.x, next.y));
       }
+      page.pushOperators(stroke(), popGraphicsState());
       break;
+    }
     case 'rect': {
       const r = box(a.x, a.y, a.w, a.h);
       page.drawRectangle({
@@ -350,7 +353,21 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
     }
     case 'text':
     case 'replace': {
-      const sys = a.family ? await c.systemFont(a.family, !!a.bold, !!a.italic) : null;
+      let sys: PDFFont | null = null;
+      if (a.sourceFace) {
+        try {
+          const bytes = embeddedFace(page, a.sourceFace);
+          if (bytes) {
+            const kit = (await import('@pdf-lib/fontkit')).default;
+            const source = kit.create(bytes);
+            if ([...a.text].every(ch => ch === '\n' || source.glyphForCodePoint(ch.codePointAt(0)!).id !== 0)) {
+              doc.registerFontkit(kit);
+              sys = await doc.embedFont(bytes, { subset: true });
+            }
+          }
+        } catch { /* Unsupported embedded font format. */ }
+      }
+      if (!sys && a.family) sys = await c.systemFont(a.family, !!a.bold, !!a.italic);
       const font = sys || (await c.font(a.font || 'sans', !!a.bold, !!a.italic));
       const safe = (s: string) => (sys ? s.replace(/\t/g, '    ') : winAnsiSafe(s));
       if (a.bg) {
@@ -447,7 +464,7 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         Subtype: 'Text',
         Rect: [o.x, o.y, o.x + 22, o.y + 22],
         Contents: PDFHexString.fromText(a.text),
-        T: PDFHexString.fromText(c.author || 'Acrobatics'),
+        T: PDFHexString.fromText(c.author || 'PweDeF'),
         M: PDFString.fromDate(new Date()),
         Name: PDFName.of('Comment'),
         C: [r, g, b],

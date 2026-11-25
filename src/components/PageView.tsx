@@ -1,5 +1,6 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { pdfjs, type PDFDocumentProxy, type PDFPageProxy } from '../lib/pdf';
+import { previewFace } from '../lib/embeddedFace';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { loadPdf, pdfjs, type PDFDocumentProxy, type PDFPageProxy } from '../lib/pdf';
 import { useEditor } from './EditorContext';
 import type { Annot, Rect, TextAnnot } from '../types';
 import { annotBounds, isBoxAnnot, normRect, uid } from '../lib/util';
@@ -279,7 +280,9 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     const isPunct = (s: string) => /^[\s.,:;!?)\]'"\-–—]+$/.test(s);
     const same = items
       .map((it, k) => ({ it, k }))
-      .filter(({ it, k }) => it.str && (it.fontName === me.fontName || k === i || isPunct(it.str)))
+      // PDF.js inserts whitespace items spanning the gutter between table cells.
+      // Measure gaps between visible fragments so gutters break the edit run.
+      .filter(({ it, k }) => it.str.trim() && (it.fontName === me.fontName || k === i || isPunct(it.str)))
       .map(({ it, k }) => ({ k, q: itemGeom(it) }))
       .filter(({ q }) => Math.abs(q.baseline - g.baseline) < 0.5 && Math.abs(q.size - g.size) < 0.2)
       .sort((a, b) => a.q.startX - b.q.startX);
@@ -344,52 +347,6 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       ed.removeAnnot(a.id);
       return;
     }
-    if (a.itemIndex === undefined || a.startX === undefined || a.baseline === undefined) return;
-    const src = textItems.current[a.itemIndex];
-    if (!src) return;
-    const ctx = document.createElement('canvas').getContext('2d')!;
-    ctx.font = `${a.italic ? 'italic ' : ''}${a.bold ? 700 : 400} ${a.fontSize}px "${a.family || 'Arial'}", sans-serif`;
-    // compare like with like: both strings measured with the same font, so measuring
-    // differences cancel out and only a real change in length moves the neighbours
-    const ws = docWordSpacing(a);
-    const spacesIn = (s: string) => (s.match(/ /g) || []).length;
-    const orig = a.origText ?? src.str;
-    const delta = ctx.measureText(a.text).width + spacesIn(a.text) * ws - (ctx.measureText(orig).width + spacesIn(orig) * ws);
-    const origEnd = a.orig ? a.orig.x + a.orig.w - 1 : a.startX + src.width;
-    // neighbours on the same baseline, to the right, contiguous (gaps under 3em)
-    const row = textItems.current
-      .map((it, i) => ({ it, i, g: it.str?.trim() ? itemGeom(it) : null }))
-      .filter((x) => x.g && x.i !== a.itemIndex && Math.abs(x.g.baseline - a.baseline!) < 0.6 && x.g.startX >= origEnd - 0.5)
-      .sort((p, q) => p.g!.startX - q.g!.startX);
-    const chain: typeof row = [];
-    let end = origEnd;
-    for (const r of row) {
-      if (r.g!.startX - end > a.fontSize * 3) break;
-      chain.push(r);
-      end = r.g!.startX + r.g!.w;
-    }
-    // replace previous pushes, then push only when the edit would collide
-    for (const id of a.pushed || []) ed.removeAnnot(id);
-    if (delta <= 0.5 || !chain.length) {
-      if (a.pushed?.length) ed.changeAnnot(a.id, (c) => ({ ...c, pushed: [] }) as Annot, false);
-      return;
-    }
-    const canvas = canvasRef.current!;
-    const k = canvas.width / size.w;
-    const ids: string[] = [];
-    for (const { it, g } of chain) {
-      const name = fontNameOf(it);
-      const nid = uid();
-      ids.push(nid);
-      ed.addAnnot({
-        id: nid, page: index, type: 'replace', x: g!.rect.x + delta, y: g!.rect.y, w: g!.rect.w, h: g!.rect.h, orig: g!.rect,
-        text: it.str, fontSize: Math.round(g!.size * 100) / 100, color: sampleInkRect(canvas, g!.rect, k), bg: '#ffffff',
-        bold: /bold|black|heavy|semibold|demi/i.test(name), italic: /italic|oblique/i.test(name),
-        baseline: g!.baseline, startX: g!.startX + delta, pushedBy: a.id,
-      });
-      if (name) window.acro.matchFont(name).then((m) => m && ed.changeAnnot(nid, (c) => ({ ...c, family: m.family, bold: m.bold, italic: m.italic }) as Annot, false));
-    }
-    ed.changeAnnot(a.id, (c) => ({ ...c, pushed: ids }) as Annot, false);
   }, [ed.editingId]);
 
   const startPan = (e: React.PointerEvent) => {
@@ -515,10 +472,13 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       {
         id, page: index, type: 'replace', ...box, orig: box,
         text, origText: text, origWidth: item ? w - 2 : undefined, fontSize, color: sampleInkRect(canvas, box, canvas.width / size.w), bg: '#ffffff', itemIndex: item ? lastIdx : undefined,
-        font, bold, italic, baseline, startX,
+        font, bold, italic, baseline, startX, sourceFace: pdfFontName,
       },
       true,
     );
+    if (pdfFontName) previewFace(pdf, index, pdfFontName).then((family) => {
+      if (family) ed.changeAnnot(id, a => a.type === 'replace' && a.sourceFace === pdfFontName ? { ...a, previewFamily: family } : a, false);
+    });
     // upgrade to the exact installed typeface once we know it
     if (pdfFontName)
       window.acro.matchFont(pdfFontName).then((m) => {
@@ -526,6 +486,46 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       });
   };
 
+  const replacements = useMemo(() => ed.annots.filter(a =>
+    a.page === index && a.type === 'replace' && a.id !== ed.editingId
+  ), [ed.annots, ed.editingId, index]);
+  const previewCanvas = useRef<HTMLCanvasElement>(null);
+  const [painted, setPainted] = useState<Annot[] | null>(null);
+  useEffect(() => {
+    if (!visible || !page || !replacements.length) return;
+    let active = true;
+    let preview: PDFDocumentProxy | undefined;
+    const paint = async () => {
+      const { bake } = await import('../lib/bake');
+      if (!active) return;
+      const bytes = await bake(await pdf.getData(), replacements.map(a => ({ ...a })), {},
+        async () => page.getViewport({ scale: 1 }), {
+          loadSystemFont: async (family, bold, italic) => (await window.acro.loadFont({ family, bold, italic }))?.data ?? null,
+        });
+      if (!active) return;
+      preview = await loadPdf(bytes);
+      try {
+        if (!active) return;
+        const sheet = await preview.getPage(index + 1);
+        const viewport = sheet.getViewport({ scale: zoom * (window.devicePixelRatio || 1) });
+        const buffer = document.createElement('canvas');
+        buffer.width = Math.ceil(viewport.width);
+        buffer.height = Math.ceil(viewport.height);
+        await sheet.render({ viewport, canvasContext: buffer.getContext('2d')!, annotationMode: pdfjs.AnnotationMode.ENABLE_FORMS }).promise;
+        const target = previewCanvas.current;
+        if (!active || !target) return;
+        target.width = buffer.width;
+        target.height = buffer.height;
+        target.getContext('2d')!.drawImage(buffer, 0, 0);
+        setPainted(replacements);
+      } finally {
+        await preview.destroy();
+      }
+    };
+    const timer = window.setTimeout(() => { paint().catch(() => {}); }, 100);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [pdf, page, index, zoom, visible, replacements]);
+  const showPreview = painted === replacements && visible;
   const pageAnnots = ed.annots.filter((a) => a.page === index);
   const pageHits = ed.hits.map((h, i) => ({ ...h, i })).filter((h) => h.page === index);
   const W = size.w * zoom;
@@ -542,6 +542,8 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       onPointerUp={onWrapPointerUp}
     >
       <canvas ref={canvasRef} className="page-canvas" style={{ width: W, height: H }} />
+      <canvas ref={previewCanvas} className="page-canvas" aria-hidden="true"
+        style={{ width: W, height: H, display: showPreview ? 'block' : 'none', pointerEvents: 'none' }} />
       {!rendered && <div className="page-loading">Loading page {index + 1}…</div>}
       <div ref={textRef} className={`textLayer ${textOnTop ? 'on-top' : ''}`} onClick={onTextClick} />
 
@@ -563,7 +565,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       </svg>
       <div className="annot-html">
         {pageAnnots.map((a) => (
-          <HtmlAnnot key={a.id} a={a} />
+          <HtmlAnnot key={a.id} a={a} painted={showPreview && replacements.includes(a)} />
         ))}
         {draft && <HtmlAnnot a={draft} draft />}
       </div>
@@ -587,11 +589,11 @@ const measureCtx = document.createElement('canvas').getContext('2d')!;
  * Same idea as the PDF's own word spacing: the original run's width minus its natural width,
  * spread over its spaces. The saved PDF applies the identical value (see bake.ts).
  */
-export function docWordSpacing(a: { origText?: string; origWidth?: number; fontSize: number; family?: string; bold?: boolean; italic?: boolean }) {
+export function docWordSpacing(a: { origText?: string; origWidth?: number; fontSize: number; family?: string; previewFamily?: string; bold?: boolean; italic?: boolean }) {
   if (!a.origText || !a.origWidth) return 0;
   const spaces = (a.origText.match(/ /g) || []).length;
   if (!spaces) return 0;
-  measureCtx.font = `${a.italic ? 'italic ' : ''}${a.bold ? 700 : 400} ${a.fontSize}px "${a.family || 'Arial'}", sans-serif`;
+  measureCtx.font = `${a.italic ? 'italic ' : ''}${a.bold ? 700 : 400} ${a.fontSize}px "${a.previewFamily || a.family || 'Arial'}", sans-serif`;
   const extra = (a.origWidth - measureCtx.measureText(a.origText).width) / spaces;
   return Math.max(-a.fontSize * 0.15, Math.min(a.fontSize * 1.5, extra));
 }
@@ -709,7 +711,7 @@ function SvgAnnot({ a, zoom: z }: { a: Annot; zoom: number }) {
           fill="none"
           stroke={a.color}
           strokeWidth={a.width * z}
-          strokeDasharray={a.dash ? ` ` : undefined}
+          strokeDasharray={a.dash ? [3 * a.width * z, 2 * a.width * z].join(' ') : undefined}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -717,7 +719,7 @@ function SvgAnnot({ a, zoom: z }: { a: Annot; zoom: number }) {
     case 'rect':
       return (
         <rect {...common} x={a.x * z} y={a.y * z} width={a.w * z} height={a.h * z} stroke={a.color} strokeWidth={a.width * z}
-          strokeDasharray={a.dash ? ` ` : undefined} fill={a.fill || 'transparent'} />
+          strokeDasharray={a.dash ? [3 * a.width * z, 2 * a.width * z].join(' ') : undefined} fill={a.fill || 'transparent'} />
       );
     case 'ellipse':
       return (
@@ -729,7 +731,7 @@ function SvgAnnot({ a, zoom: z }: { a: Annot; zoom: number }) {
           ry={(a.h / 2) * z}
           stroke={a.color}
           strokeWidth={a.width * z}
-          strokeDasharray={a.dash ? ` ` : undefined}
+          strokeDasharray={a.dash ? [3 * a.width * z, 2 * a.width * z].join(' ') : undefined}
           fill={a.fill || 'transparent'}
         />
       );
@@ -767,7 +769,7 @@ function SvgAnnot({ a, zoom: z }: { a: Annot; zoom: number }) {
             d={`M${a.x1 * z},${a.y1 * z}L${a.x2 * z},${a.y2 * z}${a.type === 'arrow' ? arrowHead(a, z) : ''}`}
             stroke={a.color}
             strokeWidth={a.width * z}
-          strokeDasharray={a.dash ? ` ` : undefined}
+          strokeDasharray={a.dash ? [3 * a.width * z, 2 * a.width * z].join(' ') : undefined}
             strokeLinecap="round"
             fill="none"
           />
@@ -849,7 +851,7 @@ function startResize(e: React.PointerEvent, a: Annot & Rect, ed: ReturnType<type
   window.addEventListener('pointerup', up);
 }
 
-function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
+function HtmlAnnot({ a, draft, painted }: { a: Annot; draft?: boolean; painted?: boolean }) {
   const ed = useEditor();
   const z = ed.zoom;
   const sel = ed.selectedId === a.id && !draft;
@@ -897,13 +899,13 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
         fontWeight: a.bold ? 700 : 400,
         fontStyle: a.italic ? 'italic' : undefined,
         padding: 2 * z,
-        fontFamily: a.family
+        fontFamily: a.previewFamily || (a.family
           ? `"${a.family}", ${a.font === 'serif' ? 'serif' : a.font === 'mono' ? 'monospace' : 'sans-serif'}`
           : a.font === 'serif'
             ? '"Times New Roman", Times, serif'
             : a.font === 'mono'
               ? '"Courier New", Courier, monospace'
-              : undefined,
+              : undefined),
         whiteSpace: a.type === 'replace' ? 'pre' : undefined,
       };
       if (a.type === 'replace' && a.orig) st.background = 'transparent'; // only the original word is hidden (see cover below)
@@ -1014,7 +1016,7 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
       onPointerDown={body ? onDown : undefined}
       onDoubleClick={onDbl}
     >
-      {body}
+      {painted ? null : body}
       {sel && isBoxAnnot(a) && (
         <div className="resize-handle" onPointerDown={(e) => startResize(e, a as Annot & Rect, ed, z)} />
       )}

@@ -111,7 +111,7 @@ export async function pdfToDocx(pdf: PDFDocumentProxy, mode: 'text' | 'exact', o
     if (i < pdf.numPages) children.push(new Paragraph({ children: [new PageBreak()] }));
   }
   const doc = new Document({
-    creator: 'Acrobatics',
+    creator: 'PweDeF',
     sections: [
       {
         properties: {
@@ -131,7 +131,7 @@ export async function pdfToDocx(pdf: PDFDocumentProxy, mode: 'text' | 'exact', o
 export async function pdfToXlsx(pdf: PDFDocumentProxy, onProgress: (i: number, n: number) => void) {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Acrobatics';
+  wb.creator = 'PweDeF';
   for (let i = 1; i <= pdf.numPages; i++) {
     onProgress(i, pdf.numPages);
     const { items } = await pageItems(pdf, i);
