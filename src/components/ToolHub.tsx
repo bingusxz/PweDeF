@@ -13,97 +13,129 @@ interface Tool {
   icon: string;
   title: string;
   desc: string;
-  color: string;
 }
 
-const CATS: { title: string; tools: Tool[] }[] = [
+/** Each section is printed on its own copy stock, like a carbonless form set. */
+const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | 'green'; tools: Tool[] }[] = [
   {
     title: 'Edit & sign',
+    stock: 'white',
     tools: [
-      { a: 'editText', icon: 'editText', title: 'Edit PDF', desc: 'Change existing text, add text, images & shapes', color: '#e5484d' },
-      { a: 'sign', icon: 'sign', title: 'Sign PDF', desc: 'Draw, type or upload a signature; stamps', color: '#e5484d' },
-      { a: 'redact', icon: 'redact', title: 'Redact', desc: 'Permanently remove sensitive info', color: '#e5484d' },
-      { a: 'watermark', icon: 'water', title: 'Watermark', desc: 'Stamp text across every page', color: '#e5484d' },
-      { a: 'numbers', icon: 'hash', title: 'Page numbers', desc: 'Page numbers or Bates numbering', color: '#e5484d' },
-    ],
-  },
-  {
-    title: 'Organize',
-    tools: [
-      { a: 'merge', icon: 'merge', title: 'Merge PDF', desc: 'Combine PDFs in the order you want', color: '#f08c00' },
-      { a: 'split', icon: 'split', title: 'Split PDF', desc: 'Split by page ranges or every N pages', color: '#f08c00' },
-      { a: 'pages', icon: 'organize', title: 'Organize pages', desc: 'Reorder, rotate, delete, insert, extract', color: '#f08c00' },
+      { a: 'editText', icon: 'editText', title: 'Edit PDF', desc: 'Change text, add images & shapes' },
+      { a: 'sign', icon: 'sign', title: 'Sign', desc: 'Signature, initials, stamps' },
+      { a: 'redact', icon: 'redact', title: 'Redact', desc: 'Remove sensitive content for good' },
+      { a: 'watermark', icon: 'water', title: 'Watermark', desc: 'Text across every page' },
+      { a: 'numbers', icon: 'hash', title: 'Page numbers', desc: 'Page or Bates numbering' },
     ],
   },
   {
     title: 'Convert to PDF',
+    stock: 'blue',
     tools: [
-      { a: 'wordToPdf', icon: 'word', title: 'Word to PDF', desc: 'DOC, DOCX, RTF, ODT, TXT', color: '#2b6cd4' },
-      { a: 'excelToPdf', icon: 'excel', title: 'Excel to PDF', desc: 'XLS, XLSX, CSV, ODS', color: '#1f8a3b' },
-      { a: 'pptToPdf', icon: 'ppt', title: 'PowerPoint to PDF', desc: 'PPT, PPTX, ODP', color: '#d9480f' },
-      { a: 'imgToPdf', icon: 'jpg', title: 'JPG to PDF', desc: 'Photos & scans: JPG, PNG, WEBP…', color: '#c2255c' },
-      { a: 'webToPdf', icon: 'web', title: 'Web page to PDF', desc: 'Save any URL as a PDF', color: '#6741d9' },
-      { a: 'htmlToPdf', icon: 'txt', title: 'HTML / Text to PDF', desc: 'HTML, TXT and Markdown files', color: '#6741d9' },
+      { a: 'wordToPdf', icon: 'word', title: 'Word to PDF', desc: 'DOC, DOCX, RTF, ODT, TXT' },
+      { a: 'excelToPdf', icon: 'excel', title: 'Excel to PDF', desc: 'XLS, XLSX, CSV, ODS' },
+      { a: 'pptToPdf', icon: 'ppt', title: 'PowerPoint to PDF', desc: 'PPT, PPTX, ODP' },
+      { a: 'imgToPdf', icon: 'jpg', title: 'Images to PDF', desc: 'JPG, PNG, WEBP, scans' },
+      { a: 'webToPdf', icon: 'web', title: 'Web page to PDF', desc: 'Any web address' },
+      { a: 'htmlToPdf', icon: 'txt', title: 'HTML or text to PDF', desc: 'HTML, TXT, Markdown' },
+    ],
+  },
+  {
+    title: 'Organize',
+    stock: 'yellow',
+    tools: [
+      { a: 'merge', icon: 'merge', title: 'Merge', desc: 'Combine PDFs in your order' },
+      { a: 'split', icon: 'split', title: 'Split', desc: 'By page ranges or every N pages' },
+      { a: 'pages', icon: 'organize', title: 'Organize pages', desc: 'Reorder, rotate, delete pages' },
     ],
   },
   {
     title: 'Convert from PDF',
+    stock: 'pink',
     tools: [
-      { a: 'toWord', icon: 'word', title: 'PDF to Word', desc: 'Editable DOCX', color: '#2b6cd4' },
-      { a: 'toExcel', icon: 'excel', title: 'PDF to Excel', desc: 'Tables to XLSX rows & columns', color: '#1f8a3b' },
-      { a: 'toPpt', icon: 'ppt', title: 'PDF to PowerPoint', desc: 'One slide per page', color: '#d9480f' },
-      { a: 'exportImages', icon: 'jpg', title: 'PDF to JPG / PNG', desc: 'Every page as an image', color: '#c2255c' },
-      { a: 'toText', icon: 'txt', title: 'PDF to Text', desc: 'Extract all text', color: '#6741d9' },
+      { a: 'toWord', icon: 'word', title: 'PDF to Word', desc: 'Editable DOCX' },
+      { a: 'toExcel', icon: 'excel', title: 'PDF to Excel', desc: 'Tables as rows and columns' },
+      { a: 'toPpt', icon: 'ppt', title: 'PDF to PowerPoint', desc: 'One slide per page' },
+      { a: 'exportImages', icon: 'jpg', title: 'PDF to images', desc: 'JPG or PNG per page' },
+      { a: 'toText', icon: 'txt', title: 'PDF to text', desc: 'All text as .txt' },
     ],
   },
   {
-    title: 'Optimize & more',
+    title: 'Finish & batch',
+    stock: 'green',
     tools: [
-      { a: 'compress', icon: 'compress', title: 'Optimize PDF', desc: 'Clean up and shrink the file', color: '#0c8599' },
-      { a: 'ocr', icon: 'ocr', title: 'OCR', desc: 'Make scanned PDFs searchable', color: '#0c8599' },
-      { a: 'flatten', icon: 'form', title: 'Flatten', desc: 'Lock form fields & markup into the page', color: '#0c8599' },
-      { a: 'batch', icon: 'batch', title: 'Batch process', desc: 'Run actions on many PDFs at once', color: '#0c8599' },
-      { a: 'properties', icon: 'info', title: 'Properties', desc: 'Title, author, keywords', color: '#0c8599' },
+      { a: 'compress', icon: 'compress', title: 'Optimize', desc: 'Clean up the file' },
+      { a: 'ocr', icon: 'ocr', title: 'Recognize text (OCR)', desc: 'Make scans searchable' },
+      { a: 'flatten', icon: 'form', title: 'Flatten', desc: 'Lock fields and markup in' },
+      { a: 'batch', icon: 'batch', title: 'Batch process', desc: 'One action on many files' },
+      { a: 'properties', icon: 'info', title: 'Properties', desc: 'Title, author, keywords' },
     ],
   },
+];
+
+/** Left: working on a PDF. Right: converting into and out of PDF. */
+const COLUMNS = [
+  ['Edit & sign', 'Organize', 'Finish & batch'],
+  ['Convert to PDF', 'Convert from PDF'],
 ];
 
 export function ToolHub({ onAction, caps }: { onAction: (a: HubAction) => void; caps: { office: boolean; libreoffice: boolean } | null }) {
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
-  const cats = CATS.map((c) => ({
-    ...c,
-    tools: c.tools.filter((t) => !needle || `${t.title} ${t.desc}`.toLowerCase().includes(needle)),
-  })).filter((c) => c.tools.length);
+  const sections = SECTIONS.map((s) => ({
+    ...s,
+    tools: s.tools.filter((t) => !needle || `${t.title} ${t.desc} ${s.title}`.toLowerCase().includes(needle)),
+  })).filter((s) => s.tools.length);
   const officeMissing = caps && !caps.office && !caps.libreoffice;
 
   return (
     <div className="hub">
-      <div className="hub-head">
-        <input className="hub-search" placeholder="Search tools… (e.g. merge, word, sign)" value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
-      {cats.map((c) => (
-        <section key={c.title}>
-          <h3>{c.title}</h3>
-          <div className="hub-grid">
-            {c.tools.map((t) => (
-              <button key={t.a} className="hub-tool" onClick={() => onAction(t.a)}>
-                <span className="hub-icon" style={{ background: t.color }}>
-                  <Icon name={t.icon} size={20} />
-                </span>
-                <span className="hub-text">
-                  <b>{t.title}</b>
-                  <span>{t.desc}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-      ))}
+      <label className="find-field">
+        <Icon name="search" size={16} />
+        <input
+          placeholder="Find a tool: merge, word, sign…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && sections[0]?.tools[0]) onAction(sections[0].tools[0].a);
+            if (e.key === 'Escape') setQ('');
+          }}
+          aria-label="Find a tool"
+        />
+        {needle && <span className="find-count">{sections.reduce((n, s) => n + s.tools.length, 0)} found · Enter opens the first</span>}
+      </label>
+
+      {sections.length ? (
+        <div className="form-set">
+          {COLUMNS.map((col, ci) => (
+            <div className="form-col" key={ci}>
+              {sections
+                .filter((s) => col.includes(s.title))
+                .map((s) => (
+                  <section key={s.title} className={`form-section stock-${s.stock}`}>
+                    <h2 className="form-section-title">{s.title}</h2>
+                    <ul className="form-lines">
+                      {s.tools.map((t) => (
+                        <li key={t.a}>
+                          <button className="form-line" onClick={() => onAction(t.a)}>
+                            <Icon name={t.icon} size={18} className="form-line-icon" />
+                            <span className="form-line-name">{t.title}</span>
+                            <span className="form-line-desc">{t.desc}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-line">No tool matches “{q}”. Try “merge”, “word” or “sign”.</p>
+      )}
+
       {officeMissing && (
-        <p className="muted small-text">
-          Word/Excel/PowerPoint → PDF needs Microsoft Office or the free LibreOffice installed on this PC.
-        </p>
+        <p className="note-line">Word, Excel and PowerPoint to PDF need Microsoft Office or the free LibreOffice on this PC.</p>
       )}
     </div>
   );

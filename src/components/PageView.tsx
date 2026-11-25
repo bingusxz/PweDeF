@@ -4,6 +4,7 @@ import { useEditor } from './EditorContext';
 import type { Annot, Rect, TextAnnot } from '../types';
 import { annotBounds, isBoxAnnot, normRect, uid } from '../lib/util';
 import { Icon } from './Icon';
+import { markStrokes } from '../lib/marks';
 
 interface Props {
   pdf: PDFDocumentProxy;
@@ -31,8 +32,7 @@ interface Widget {
   maxLen?: number;
 }
 
-const DRAW_TOOLS = new Set(['ink', 'rect', 'ellipse', 'line', 'arrow', 'whiteout', 'redact', 'text', 'note', 'place', 'hand']);
-const MARKUP_TOOLS = new Set(['highlight', 'underline', 'strike']);
+const DRAW_TOOLS = new Set(['ink', 'rect', 'ellipse', 'line', 'arrow', 'whiteout', 'redact', 'text', 'note', 'mark', 'place', 'hand']);const MARKUP_TOOLS = new Set(['highlight', 'underline', 'strike']);
 
 function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
   const ed = useEditor();
@@ -45,6 +45,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [draft, setDraft] = useState<Annot | null>(null);
   const [rendered, setRendered] = useState(false);
+  const textItems = useRef<any[]>([]);
 
   // visibility (lazy render)
   useEffect(() => {
@@ -110,13 +111,24 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     if (!page || !visible) return;
     const el = textRef.current!;
     el.replaceChildren();
-    const tl = new pdfjs.TextLayer({
-      textContentSource: page.streamTextContent(),
-      container: el,
-      viewport: page.getViewport({ scale: zoom }),
+    let tl: InstanceType<typeof pdfjs.TextLayer> | null = null;
+    let alive = true;
+    page.getTextContent().then((tc) => {
+      if (!alive) return;
+      const items = (tc.items as any[]).filter((it) => typeof it.str === 'string');
+      textItems.current = items;
+      tl = new pdfjs.TextLayer({ textContentSource: tc, container: el, viewport: page.getViewport({ scale: zoom }) });
+      tl.render()
+        .then(() => {
+          // tag each span with its text item so Edit Text can read the exact font, size and baseline
+          tl!.textDivs.forEach((div, i) => ((div as HTMLElement).dataset.item = String(i)));
+        })
+        .catch(() => {});
     });
-    tl.render().catch(() => {});
-    return () => tl.cancel();
+    return () => {
+      alive = false;
+      tl?.cancel();
+    };
   }, [page, visible, zoom]);
 
   const toPage = (cx: number, cy: number) => {
@@ -148,6 +160,36 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       ed.placeImageAt(index, x0, y0);
       return;
     }
+    if (tool === 'mark') {
+      ed.addAnnot({ id, page: index, type: 'mark', kind: style.mark, x: x0, y: y0, size: style.markSize, color: style.color === '#c62828' ? '#000000' : style.color });
+      return;
+    }
+    if (tool === 'move') {
+      // grabbing an existing selection drags it; otherwise draw a new selection box
+      const hitMove = ed.annots.find((a) => {
+        if (a.page !== index || a.type !== 'move') return false;
+        const b = annotBounds(a);
+        return x0 >= b.x && x0 <= b.x + b.w && y0 >= b.y && y0 <= b.y + b.h;
+      });
+      if (hitMove) {
+        ed.select(hitMove.id);
+        ed.pushHistory();
+        let last = [x0, y0];
+        const mv = (ev: PointerEvent) => {
+          const [x, y] = toPage(ev.clientX, ev.clientY);
+          const ddx = x - last[0], ddy = y - last[1];
+          last = [x, y];
+          ed.changeAnnot(hitMove.id, (c) => moveAnnotBy(c, ddx, ddy), false);
+        };
+        const upMv = () => {
+          window.removeEventListener('pointermove', mv);
+          window.removeEventListener('pointerup', upMv);
+        };
+        window.addEventListener('pointermove', mv);
+        window.addEventListener('pointerup', upMv);
+        return;
+      }
+    }
 
     let current: Annot | null = null;
     const move = (ev: PointerEvent) => {
@@ -158,7 +200,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       } else if (tool === 'line' || tool === 'arrow') {
         let x2 = x, y2 = y;
         if (ev.shiftKey) {
-          // snap to 45°
+          // snap to 45Â°
           const ang = Math.round(Math.atan2(y - y0, x - x0) / (Math.PI / 4)) * (Math.PI / 4);
           const len = Math.hypot(x - x0, y - y0);
           x2 = x0 + len * Math.cos(ang);
@@ -171,7 +213,8 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
           const s = Math.max(r.w, r.h);
           r = { x: x < x0 ? x0 - s : x0, y: y < y0 ? y0 - s : y0, w: s, h: s };
         }
-        if (tool === 'whiteout') current = { id, page: index, type: 'whiteout', ...r, color: '#ffffff' };
+        if (tool === 'move') current = { id, page: index, type: 'move', from: r, dx: 0, dy: 0, snapshot: '', texts: [] };
+        else if (tool === 'whiteout') current = { id, page: index, type: 'whiteout', ...r, color: '#ffffff' };
         else if (tool === 'redact') current = { id, page: index, type: 'redact', ...r };
         else if (tool === 'rect' || tool === 'ellipse')
           current = { id, page: index, type: tool, ...r, color: style.color, width: style.width, fill: style.fill };
@@ -185,11 +228,135 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       if (!current) return;
       const b = annotBounds(current);
       if (current.type !== 'ink' && b.w < 3 && b.h < 3) return;
+      if (current.type === 'move') {
+        const sel = captureArea(current.from);
+        ed.addAnnot({ ...current, ...sel });
+        ed.select(current.id);
+        // fill in exact typefaces for the captured text
+        sel.texts.forEach((t, k) => {
+          const name = sel.fontNames[k];
+          if (name)
+            window.acro.matchFont(name).then((m) => {
+              if (m)
+                ed.changeAnnot(
+                  current!.id,
+                  (c) => (c.type === 'move' ? { ...c, texts: c.texts.map((x, j) => (j === k ? { ...x, family: m.family, bold: m.bold, italic: m.italic } : x)) } : c),
+                  false,
+                );
+            });
+        });
+        return;
+      }
       ed.addAnnot(current);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
+
+  /** Text geometry of a pdf.js item in page units (scale 1). */
+  const itemGeom = (item: any) => {
+    const vp1 = page!.getViewport({ scale: 1 });
+    const tx = pdfjs.Util.transform(vp1.transform, item.transform);
+    const size = Math.hypot(tx[2], tx[3]);
+    return { startX: tx[4], baseline: tx[5], size, w: item.width as number, rect: { x: tx[4] - 1, y: tx[5] - size * 0.95, w: item.width + 2, h: size * 1.25 } };
+  };
+  const fontNameOf = (item: any) => {
+    try {
+      return (page!.commonObjs.has(item.fontName) && (page!.commonObjs.get(item.fontName) as any)?.name) || '';
+    } catch {
+      return '';
+    }
+  };
+
+  /** Snapshot + text runs inside a Move selection. */
+  const captureArea = (r: Rect) => {
+    const canvas = canvasRef.current!;
+    const k = canvas.width / size.w;
+    let snapshot = '';
+    try {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(r.w * k));
+      c.height = Math.max(1, Math.round(r.h * k));
+      c.getContext('2d')!.drawImage(canvas, r.x * k, r.y * k, r.w * k, r.h * k, 0, 0, c.width, c.height);
+      snapshot = c.toDataURL('image/png');
+    } catch {
+      /* preview only */
+    }
+    const texts: import('../types').MovedText[] = [];
+    const fontNames: string[] = [];
+    for (const item of textItems.current) {
+      if (!item.str || !item.str.trim()) continue;
+      const g = itemGeom(item);
+      const inside = g.rect.x >= r.x - 1 && g.rect.y >= r.y - 1 && g.rect.x + g.rect.w <= r.x + r.w + 1 && g.rect.y + g.rect.h <= r.y + r.h + 1;
+      if (!inside) continue;
+      const name = fontNameOf(item);
+      const fam = name.toLowerCase();
+      texts.push({
+        text: item.str,
+        orig: g.rect,
+        startX: g.startX,
+        baseline: g.baseline,
+        fontSize: Math.round(g.size * 100) / 100,
+        bold: /bold|black|heavy|semibold|demi/i.test(name),
+        italic: /italic|oblique/i.test(name),
+        font: /courier|mono/.test(fam) ? 'mono' : /times|serif|georgia|garamond|cambria/.test(fam) && !/sans/.test(fam) ? 'serif' : 'sans',
+        color: sampleInkRect(canvas, g.rect, k),
+      });
+      fontNames.push(name);
+    }
+    return { snapshot, texts, fontNames };
+  };
+
+  // ---------- line reflow: a longer edit pushes the rest of its line along ----------
+  const prevEditing = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevEditing.current;
+    prevEditing.current = ed.editingId;
+    if (!prev || prev === ed.editingId || !page) return;
+    const a = ed.annots.find((x) => x.id === prev);
+    if (!a || a.type !== 'replace' || a.page !== index || a.itemIndex === undefined || a.startX === undefined || a.baseline === undefined) return;
+    const src = textItems.current[a.itemIndex];
+    if (!src) return;
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    ctx.font = `${a.italic ? 'italic ' : ''}${a.bold ? 700 : 400} ${a.fontSize}px "${a.family || 'Arial'}", sans-serif`;
+    const newEnd = a.startX + ctx.measureText(a.text).width;
+    const origEnd = a.startX + src.width;
+    const delta = newEnd - origEnd;
+    // neighbours on the same baseline, to the right, contiguous (gaps under 3em)
+    const row = textItems.current
+      .map((it, i) => ({ it, i, g: it.str?.trim() ? itemGeom(it) : null }))
+      .filter((x) => x.g && x.i !== a.itemIndex && Math.abs(x.g.baseline - a.baseline!) < 0.6 && x.g.startX >= origEnd - 0.5)
+      .sort((p, q) => p.g!.startX - q.g!.startX);
+    const chain: typeof row = [];
+    let end = origEnd;
+    for (const r of row) {
+      if (r.g!.startX - end > a.fontSize * 3) break;
+      chain.push(r);
+      end = r.g!.startX + r.g!.w;
+    }
+    // replace previous pushes, then push only when the edit would collide
+    for (const id of a.pushed || []) ed.removeAnnot(id);
+    if (delta <= 0.5 || !chain.length) {
+      if (a.pushed?.length) ed.changeAnnot(a.id, (c) => ({ ...c, pushed: [] }) as Annot, false);
+      return;
+    }
+    const canvas = canvasRef.current!;
+    const k = canvas.width / size.w;
+    const ids: string[] = [];
+    for (const { it, g } of chain) {
+      const name = fontNameOf(it);
+      const nid = uid();
+      ids.push(nid);
+      ed.addAnnot({
+        id: nid, page: index, type: 'replace', x: g!.rect.x + delta, y: g!.rect.y, w: g!.rect.w, h: g!.rect.h, orig: g!.rect,
+        text: it.str, fontSize: Math.round(g!.size * 100) / 100, color: sampleInkRect(canvas, g!.rect, k), bg: '#ffffff',
+        bold: /bold|black|heavy|semibold|demi/i.test(name), italic: /italic|oblique/i.test(name),
+        baseline: g!.baseline, startX: g!.startX + delta, pushedBy: a.id,
+      });
+      if (name) window.acro.matchFont(name).then((m) => m && ed.changeAnnot(nid, (c) => ({ ...c, family: m.family, bold: m.bold, italic: m.italic }) as Annot, false));
+    }
+    ed.changeAnnot(a.id, (c) => ({ ...c, pushed: ids }) as Annot, false);
+  }, [ed.editingId]);
 
   const startPan = (e: React.PointerEvent) => {
     const scroller = wrapRef.current!.closest('.viewer') as HTMLElement;
@@ -239,24 +406,51 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
   };
 
   const onTextClick = (e: React.MouseEvent) => {
-    if (tool !== 'editText') return;
-    const span = (e.target as HTMLElement).closest('span');
+    if (tool !== 'editText' || !page) return;
+    const span = (e.target as HTMLElement).closest('span') as HTMLElement | null;
     if (!span || !textRef.current!.contains(span) || !span.textContent?.trim()) return;
     const r = span.getBoundingClientRect();
     const [x, y] = toPage(r.left, r.top);
+    const w = r.width / zoom;
     const h = r.height / zoom;
-    // pdf.js writes the exact font height into the span style: calc(var(--…) * 12px)
-    const m = span.style.fontSize.match(/\*\s*([\d.]+)px/);
-    const fs = m ? Math.round(parseFloat(m[1]) * 2) / 2 : Math.max(4, Math.round(h * 0.9 * 2) / 2);
-    const fam = span.style.fontFamily.toLowerCase();
-    const font = fam.includes('mono') ? 'mono' : fam.includes('sans') || !fam.includes('serif') ? 'sans' : 'serif';
+    const item = textItems.current[Number(span.dataset.item)];
+
+    // exact geometry from the PDF text item (scale-1 page units)
+    let fontSize = Math.max(4, Math.round(h * 0.9 * 2) / 2);
+    let baseline: number | undefined;
+    let startX: number | undefined;
+    let pdfFontName = '';
+    if (item) {
+      const vp1 = page.getViewport({ scale: 1 });
+      const tx = pdfjs.Util.transform(vp1.transform, item.transform);
+      fontSize = Math.round(Math.hypot(tx[2], tx[3]) * 100) / 100;
+      baseline = tx[5];
+      startX = tx[4];
+      try {
+        pdfFontName = (page.commonObjs.has(item.fontName) && (page.commonObjs.get(item.fontName) as any)?.name) || '';
+      } catch {
+        pdfFontName = '';
+      }
+    }
+    const bold = /bold|black|heavy|semibold|demi/i.test(pdfFontName);
+    const italic = /italic|oblique/i.test(pdfFontName);
+    const fam = (span.style.fontFamily + ' ' + pdfFontName).toLowerCase();
+    const font = /courier|mono/.test(fam) ? 'mono' : /times|serif|georgia|garamond|cambria|book/.test(fam) && !/sans/.test(fam) ? 'serif' : 'sans';
+    const id = uid();
+    const box = { x: x - 1, y: y - 0.5, w: w + 2, h: h + 1 };
     ed.addAnnot(
       {
-        id: uid(), page: index, type: 'replace', x: x - 1.5, y: y - 1, w: r.width / zoom + 3, h: h + 2,
-        text: span.textContent, fontSize: fs, color: '#000000', bg: '#ffffff', font,
+        id, page: index, type: 'replace', ...box, orig: box,
+        text: span.textContent, fontSize, color: sampleInk(canvasRef.current!, r, wrapRef.current!), bg: '#ffffff', itemIndex: item ? Number(span.dataset.item) : undefined,
+        font, bold, italic, baseline, startX,
       },
       true,
     );
+    // upgrade to the exact installed typeface once we know it
+    if (pdfFontName)
+      window.acro.matchFont(pdfFontName).then((m) => {
+        if (m) ed.changeAnnot(id, (a) => ({ ...a, family: m.family, bold: m.bold, italic: m.italic }) as Annot, false);
+      });
   };
 
   const pageAnnots = ed.annots.filter((a) => a.page === index);
@@ -275,7 +469,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       onPointerUp={onWrapPointerUp}
     >
       <canvas ref={canvasRef} className="page-canvas" style={{ width: W, height: H }} />
-      {!rendered && <div className="page-loading">Loading page {index + 1}…</div>}
+      {!rendered && <div className="page-loading">Loading page {index + 1}â€¦</div>}
       <div ref={textRef} className={`textLayer ${textOnTop ? 'on-top' : ''}`} onClick={onTextClick} />
 
       {/* annotations */}
@@ -312,6 +506,57 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       <div className="page-number">{index + 1}</div>
     </div>
   );
+}
+
+/** Same as sampleInk, for a rect in page units (k = canvas pixels per page unit). */
+function sampleInkRect(canvas: HTMLCanvasElement, r: Rect, k: number): string {
+  try {
+    const x = Math.max(0, Math.floor(r.x * k)), y = Math.max(0, Math.floor(r.y * k));
+    const w = Math.max(1, Math.min(canvas.width - x, Math.ceil(r.w * k)));
+    const h = Math.max(1, Math.min(canvas.height - y, Math.ceil(r.h * k)));
+    const d = canvas.getContext('2d')!.getImageData(x, y, w, h).data;
+    let best = 766;
+    let rgb = [0, 0, 0];
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = d[i] + d[i + 1] + d[i + 2];
+      if (d[i + 3] > 200 && lum < best) {
+        best = lum;
+        rgb = [d[i], d[i + 1], d[i + 2]];
+      }
+    }
+    if (best < 120) return '#000000';
+    return '#' + rgb.map((v) => v.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return '#000000';
+  }
+}
+
+/** Darkest ink inside the clicked text: the original text colour (black for most documents). */
+function sampleInk(canvas: HTMLCanvasElement, r: DOMRect, wrap: HTMLElement): string {
+  try {
+    const wr = wrap.getBoundingClientRect();
+    const sx = canvas.width / wr.width;
+    const sy = canvas.height / wr.height;
+    const x = Math.max(0, Math.floor((r.left - wr.left) * sx));
+    const y = Math.max(0, Math.floor((r.top - wr.top) * sy));
+    const w = Math.max(1, Math.min(canvas.width - x, Math.ceil(r.width * sx)));
+    const h = Math.max(1, Math.min(canvas.height - y, Math.ceil(r.height * sy)));
+    const d = canvas.getContext('2d')!.getImageData(x, y, w, h).data;
+    let best = 766;
+    let rgb = [0, 0, 0];
+    for (let k = 0; k < d.length; k += 4) {
+      const lum = d[k] + d[k + 1] + d[k + 2];
+      if (d[k + 3] > 200 && lum < best) {
+        best = lum;
+        rgb = [d[k], d[k + 1], d[k + 2]];
+      }
+    }
+    // near-black anti-aliasing noise -> pure black
+    if (best < 120) return '#000000';
+    return '#' + rgb.map((v) => v.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return '#000000';
+  }
 }
 
 function mergeLineRects(rs: Rect[]): Rect[] {
@@ -397,6 +642,31 @@ function SvgAnnot({ a, zoom: z }: { a: Annot; zoom: number }) {
           fill={a.fill || 'transparent'}
         />
       );
+    case 'mark': {
+      const s = a.size * z;
+      const cx = a.x * z;
+      const cy = a.y * z;
+      return (
+        <g {...common}>
+          <rect x={cx - s / 2} y={cy - s / 2} width={s} height={s} fill="transparent" />
+          {a.kind === 'dot' ? (
+            <circle cx={cx} cy={cy} r={s * 0.28} fill={a.color} />
+          ) : (
+            markStrokes(a.kind).map((pts, i) => (
+              <polyline
+                key={i}
+                points={pts.map(([px, py]) => `${cx + px * s},${cy + py * s}`).join(' ')}
+                fill="none"
+                stroke={a.color}
+                strokeWidth={Math.max(1, s * 0.13)}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))
+          )}
+        </g>
+      );
+    }
     case 'line':
     case 'arrow':
       return (
@@ -508,34 +778,77 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
         color: a.color,
         background: a.bg || 'transparent',
         fontWeight: a.bold ? 700 : 400,
+        fontStyle: a.italic ? 'italic' : undefined,
         padding: 2 * z,
-        fontFamily: a.font === 'serif' ? '"Times New Roman", Times, serif' : a.font === 'mono' ? '"Courier New", Courier, monospace' : undefined,
+        fontFamily: a.family
+          ? `"${a.family}", ${a.font === 'serif' ? 'serif' : a.font === 'mono' ? 'monospace' : 'sans-serif'}`
+          : a.font === 'serif'
+            ? '"Times New Roman", Times, serif'
+            : a.font === 'mono'
+              ? '"Courier New", Courier, monospace'
+              : undefined,
         whiteSpace: a.type === 'replace' ? 'pre' : undefined,
       };
-      body = editing ? (
-        <textarea
-          ref={taRef}
-          className="text-edit"
-          rows={1}
-          style={st}
-          value={a.text}
-          onChange={(e) => ed.changeAnnot(a.id, (c) => ({ ...c, text: e.target.value }) as Annot, false)}
-          onBlur={() => {
-            ed.edit(null);
-            if (!a.text.trim() && a.type === 'text') ed.removeAnnot(a.id);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur();
-            e.stopPropagation();
-          }}
-        />
-      ) : (
-        <div className="text-view" style={st}>
-          {a.text}
-        </div>
+      if (a.type === 'replace' && a.orig) st.background = 'transparent'; // only the original word is hidden (see cover below)
+      if (a.type === 'replace' && a.baseline !== undefined && a.startX !== undefined) {
+        // sit the preview on the original baseline (â‰ˆ0.9em ascent) and start x
+        st.lineHeight = 1;
+        st.padding = `${Math.max(0, (a.baseline - a.y - a.fontSize * 0.9) * z)}px 0 0 ${Math.max(0, (a.startX - a.x) * z)}px`;
+      }
+      // preview-only: hide exactly the original word (on save it is removed from the PDF itself)
+      const cover =
+        a.type === 'replace' && a.orig ? (
+          <div
+            className="orig-cover"
+            style={{
+              left: (a.orig.x + 0.75 - b.x) * z,
+              top: (a.orig.y + 0.5 - b.y) * z,
+              width: Math.max(0, a.orig.w - 1.5) * z,
+              height: Math.max(0, a.orig.h - 1) * z,
+            }}
+          />
+        ) : null;
+      body = (
+        <>
+          {cover}
+          {editing ? (
+            <textarea
+              ref={taRef}
+              className="text-edit"
+              rows={1}
+              style={st}
+              value={a.text}
+              onChange={(e) => ed.changeAnnot(a.id, (c) => ({ ...c, text: e.target.value }) as Annot, false)}
+              onBlur={() => {
+                ed.edit(null);
+                if (!a.text.trim() && a.type === 'text') ed.removeAnnot(a.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur();
+                e.stopPropagation();
+              }}
+            />
+          ) : (
+            <div className="text-view" style={st}>
+              {a.text}
+            </div>
+          )}
+        </>
       );
       break;
     }
+    case 'move':
+      body = (
+        <>
+          {(a.dx || a.dy) && (
+            // the original spot, emptied (preview; on save the objects really move)
+            <div className="orig-cover" style={{ left: -a.dx * z, top: -a.dy * z, width: a.from.w * z, height: a.from.h * z }} />
+          )}
+          {a.snapshot && <img src={a.snapshot} draggable={false} alt="" className="move-snap" />}
+          <div className="move-frame" />
+        </>
+      );
+      break;
     case 'whiteout':
       body = <div className="fill" style={{ background: a.color }} />;
       break;
@@ -555,7 +868,7 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
             <div className="note-pop" onPointerDown={(e) => e.stopPropagation()}>
               <textarea
                 ref={editing ? taRef : undefined}
-                placeholder="Write a comment…"
+                placeholder="Write a commentâ€¦"
                 value={a.text}
                 onChange={(e) => ed.changeAnnot(a.id, (c) => ({ ...c, text: e.target.value }) as Annot, false)}
                 onFocus={() => ed.edit(a.id)}

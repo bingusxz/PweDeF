@@ -62,6 +62,10 @@ export function annotBounds(a: Annot): Rect {
       return normRect(a.x1, a.y1, a.x2, a.y2);
     case 'note':
       return { x: a.x, y: a.y, w: 22, h: 22 };
+    case 'mark':
+      return { x: a.x - a.size / 2, y: a.y - a.size / 2, w: a.size, h: a.size };
+    case 'move':
+      return { x: a.from.x + a.dx, y: a.from.y + a.dy, w: a.from.w, h: a.from.h };
     default:
       return { x: a.x, y: a.y, w: a.w, h: a.h };
   }
@@ -78,6 +82,8 @@ export function moveAnnot<T extends Annot>(a: T, dx: number, dy: number): T {
     case 'line':
     case 'arrow':
       return { ...a, x1: a.x1 + dx, y1: a.y1 + dy, x2: a.x2 + dx, y2: a.y2 + dy };
+    case 'move':
+      return { ...a, dx: a.dx + dx, dy: a.dy + dy };
     default:
       return { ...a, x: (a as any).x + dx, y: (a as any).y + dy };
   }

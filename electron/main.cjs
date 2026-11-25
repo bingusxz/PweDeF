@@ -1,6 +1,6 @@
 // Acrobatics — Electron main process.
 // Owns windows, native dialogs, file system access, and auto-update.
-const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, Menu } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, Menu, nativeTheme } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { pathToFileURL } = require('node:url');
@@ -51,14 +51,24 @@ const CSP = [
   "font-src 'self' app: data:",
 ].join('; ');
 
+// Caption-button strip colours, matched to the titlebar tokens in styles.css.
+const CHROME = {
+  light: { color: '#eef0f4', symbolColor: '#1c2340', bg: '#e4e7ed' },
+  dark: { color: '#11152a', symbolColor: '#e9ecf5', bg: '#0c1022' },
+};
+const chrome = () => CHROME[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#1e1f24',
+    backgroundColor: chrome().bg,
     title: 'Acrobatics',
+    icon: path.join(__dirname, 'icon.png'),
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: chrome().color, symbolColor: chrome().symbolColor, height: 40 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -175,6 +185,87 @@ ipcMain.handle('app:ready', async () => {
     }
   }
   return out;
+});
+
+// ---------- installed fonts (so edited text keeps the PDF's own typeface) ----------
+// Windows lists fonts in the registry: "Tahoma Bold (TrueType)" -> tahomabd.ttf
+let fontIndex = null;
+const normFont = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+function buildFontIndex() {
+  if (fontIndex) return fontIndex;
+  fontIndex = new Map();
+  if (process.platform !== 'win32') return fontIndex;
+  const { execFileSync } = require('node:child_process');
+  const winFonts = path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts');
+  const userFonts = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Windows', 'Fonts');
+  for (const hive of ['HKLM', 'HKCU']) {
+    let out = '';
+    try {
+      out = execFileSync('reg', ['query', `${hive}\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts`], {
+        windowsHide: true,
+        encoding: 'utf8',
+      });
+    } catch {
+      continue;
+    }
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.match(/^\s+(.+?)\s+REG_SZ\s+(.+?)\s*$/);
+      if (!m) continue;
+      const name = m[1].replace(/\s*\((TrueType|OpenType)\)\s*$/i, '');
+      let file = m[2];
+      if (!/\.(ttf|otf)$/i.test(file)) continue; // .ttc collections / bitmap fonts aren't embeddable here
+      if (!path.isAbsolute(file)) file = path.join(hive === 'HKCU' ? userFonts : winFonts, file);
+      const bold = /\bbold\b/i.test(name);
+      const italic = /\b(italic|oblique)\b/i.test(name);
+      const family = name.replace(/\b(regular|bold|italic|oblique)\b/gi, '').replace(/\s+/g, ' ').trim();
+      const key = normFont(family) + (bold ? '|b' : '') + (italic ? '|i' : '');
+      if (!fontIndex.has(key)) fontIndex.set(key, { family, bold, italic, file });
+    }
+  }
+  return fontIndex;
+}
+
+/** Map a PDF font name like "ABCDEF+Tahoma-Bold" or "TimesNewRomanPS-BoldItalicMT" to an installed font. */
+function matchPdfFont(pdfName) {
+  const idx = buildFontIndex();
+  let n = String(pdfName || '').replace(/^[A-Z]{6}\+/, '');
+  const bold = /bold|black|heavy|semibold|demi/i.test(n);
+  const italic = /italic|oblique|\bit\b/i.test(n);
+  let base = n
+    .split(/[-,]/)[0]
+    .replace(/(PSMT|PS|MT)$/, '')
+    .replace(/(Bold|Italic|Oblique|Regular)+$/i, '');
+  const famKey = normFont(base);
+  const pick = (b, i) => idx.get(famKey + (b ? '|b' : '') + (i ? '|i' : ''));
+  const hit = pick(bold, italic) || pick(bold, false) || pick(false, false);
+  return hit ? { family: hit.family, bold, italic, file: hit.file, exact: hit.bold === bold && hit.italic === italic } : null;
+}
+
+ipcMain.handle('fonts:match', (_e, pdfName) => matchPdfFont(pdfName));
+ipcMain.handle('fonts:load', async (_e, { family, bold, italic }) => {
+  const idx = buildFontIndex();
+  const k = normFont(family);
+  const hit = idx.get(k + (bold ? '|b' : '') + (italic ? '|i' : '')) || idx.get(k + (bold ? '|b' : '')) || idx.get(k);
+  if (!hit) return null;
+  try {
+    return { data: new Uint8Array(await fs.readFile(hit.file)), exact: hit.bold === !!bold && hit.italic === !!italic };
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('theme:set', (_e, mode) => {
+  nativeTheme.themeSource = ['light', 'dark'].includes(mode) ? mode : 'system';
+});
+nativeTheme.on('updated', () => {
+  if (!win || win.isDestroyed()) return;
+  const c = chrome();
+  try {
+    win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor });
+  } catch {
+    /* overlay unsupported on this platform */
+  }
+  win.setBackgroundColor(c.bg);
 });
 
 ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));

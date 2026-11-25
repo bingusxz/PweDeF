@@ -18,6 +18,8 @@ export type Tool =
   | 'whiteout'
   | 'redact'
   | 'note'
+  | 'mark'
+  | 'move'
   | 'place'; // placing an image (signature / stamp / picture)
 
 export interface Rect {
@@ -51,7 +53,20 @@ export type TextAnnot = Base &
     fontSize: number;
     color: string;
     bold?: boolean;
+    italic?: boolean;
     font?: 'sans' | 'serif' | 'mono';
+    /** installed font family matched from the PDF (e.g. "Tahoma"), used for preview and embedding */
+    family?: string;
+    /** exact baseline (page units) and start x of the original text, for pixel-exact replacement */
+    baseline?: number;
+    startX?: number;
+    /** the original text's box, removed from the page content on save */
+    orig?: Rect;
+    /** index of the source pdf.js text item (for line reflow) */
+    itemIndex?: number;
+    /** neighbours pushed along the line when this edit grew; managed automatically */
+    pushed?: string[];
+    pushedBy?: string;
     /** background drawn underneath (used by edit-text to cover the original words) */
     bg?: string | null;
   };
@@ -60,6 +75,23 @@ export type WhiteoutAnnot = Base & Rect & { type: 'whiteout'; color: string };
 export type RedactAnnot = Base & Rect & { type: 'redact' };
 export type ImageAnnot = Base & Rect & { type: 'image'; dataUrl: string; label?: string };
 export type NoteAnnot = Base & { type: 'note'; x: number; y: number; text: string; color: string };
+/** A text run captured by the Move tool, redrawn in its own font at the new place. */
+export interface MovedText {
+  text: string;
+  orig: Rect;
+  startX: number;
+  baseline: number;
+  fontSize: number;
+  family?: string;
+  bold: boolean;
+  italic: boolean;
+  font: 'sans' | 'serif' | 'mono';
+  color: string;
+}
+/** Move tool: everything fully inside `from` is moved by (dx, dy) on save. */
+export type MoveAnnot = Base & { type: 'move'; from: Rect; dx: number; dy: number; snapshot: string; texts: MovedText[] };
+/** Fill & Sign style marks for boxes that aren't real form fields. x,y is the centre. */
+export type MarkAnnot = Base & { type: 'mark'; kind: 'check' | 'cross' | 'dot'; x: number; y: number; size: number; color: string };
 
 export type Annot =
   | MarkupAnnot
@@ -70,7 +102,9 @@ export type Annot =
   | WhiteoutAnnot
   | RedactAnnot
   | ImageAnnot
-  | NoteAnnot;
+  | NoteAnnot
+  | MarkAnnot
+  | MoveAnnot;
 
 export type FormValues = Record<string, string | boolean>;
 
@@ -102,4 +136,6 @@ export interface StyleState {
   fontSize: number;
   fill: string | null;
   highlight: string;
+  mark: 'check' | 'cross' | 'dot';
+  markSize: number;
 }

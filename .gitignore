@@ -8,3 +8,4 @@ release/
 .claude/settings.local.json
 public/pdfjs/
 .test-out/
+.impeccable/

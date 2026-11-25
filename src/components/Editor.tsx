@@ -32,6 +32,7 @@ const TOOL_GROUPS: { tool: Tool; icon: string; label: string; key?: string }[][]
   [
     { tool: 'editText', icon: 'editText', label: 'Edit existing text (E) â€” click any word/line', key: 'e' },
     { tool: 'text', icon: 'text', label: 'Add text (T)', key: 't' },
+    { tool: 'move', icon: 'moveTool', label: 'Move (M): drag a box around anything, then drag the box to move it', key: 'm' },
     { tool: 'whiteout', icon: 'whiteout', label: 'Whiteout / cover (W)', key: 'w' },
   ],
   [
@@ -39,6 +40,7 @@ const TOOL_GROUPS: { tool: Tool; icon: string; label: string; key?: string }[][]
     { tool: 'underline', icon: 'underline', label: 'Underline', key: 'u' },
     { tool: 'strike', icon: 'strike', label: 'Strikethrough', key: 's' },
     { tool: 'note', icon: 'note', label: 'Comment / sticky note (N)', key: 'n' },
+    { tool: 'mark', icon: 'check', label: 'Check mark (K): click a box to tick it with ✓ ✗ or ●', key: 'k' },
   ],
   [
     { tool: 'ink', icon: 'ink', label: 'Draw freehand (D)', key: 'd' },
@@ -49,6 +51,15 @@ const TOOL_GROUPS: { tool: Tool; icon: string; label: string; key?: string }[][]
   ],
   [{ tool: 'redact', icon: 'redact', label: 'Redact â€” permanently removes content on save', key: 'x' }],
 ];
+
+/** The tools people look for by name get a visible label, not just an icon. */
+const SHORT: Partial<Record<Tool, string>> = {
+  editText: 'Edit text',
+  move: 'Move',
+  text: 'Add text',
+  highlight: 'Highlight',
+  mark: 'Check',
+};
 
 const COLORS = ['#111111', '#c62828', '#1d5fbf', '#1f8a3b', '#d97706', '#6b3fbf', '#ffffff'];
 const HL_COLORS = ['#ffe14d', '#7ee08a', '#7cc7ff', '#ff9ccf', '#ffb35c'];
@@ -61,7 +72,15 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [tool, setTool] = useState<Tool>('select');
-  const [style, setStyle] = useState<StyleState>({ color: '#c62828', width: 2, fontSize: 12, fill: null, highlight: '#ffe14d' });
+  const [style, setStyle] = useState<StyleState>({
+    color: '#c62828',
+    width: 2,
+    fontSize: 12,
+    fill: null,
+    highlight: '#ffe14d',
+    mark: 'check',
+    markSize: 12,
+  });
   const [selectedId, setSelected] = useState<string | null>(null);
   const [editingId, setEditing] = useState<string | null>(null);
   const [panel, setPanel] = useState<'pages' | 'search' | 'comments' | null>('pages');
@@ -187,7 +206,11 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
       const redacts = t.annots.filter((a): a is RedactAnnot => a.type === 'redact');
       let out = t.bytes;
       if (normal.length || Object.keys(t.form).length || opts.flattenForms)
-        out = await bake(out, normal, t.form, getViewport, { ...opts, author: localStorage.getItem('acro.user') || undefined });
+        out = await bake(out, normal, t.form, getViewport, {
+          ...opts,
+          author: localStorage.getItem('acro.user') || undefined,
+          loadSystemFont: async (family, bold, italic) => (await window.acro.loadFont({ family, bold, italic }))?.data ?? null,
+        });
       if (redacts.length) out = await applyRedactions(out, redacts);
       return out;
     },
@@ -278,7 +301,8 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
         mutate((t) => ({ annots: t.annots.map((a) => (a.id === id ? fn(a) : a)) }), history);
       },
       removeAnnot(id) {
-        mutate((t) => ({ annots: t.annots.filter((a) => a.id !== id) }));
+        // an edit's line-reflow helpers go with it
+        mutate((t) => ({ annots: t.annots.filter((a) => a.id !== id && !(a.type === 'replace' && a.pushedBy === id)) }));
         setSelected((s) => (s === id ? null : s));
       },
       pushHistory() {
@@ -717,8 +741,15 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
           {TOOL_GROUPS.map((g, gi) => (
             <div className="tb-group" key={gi}>
               {g.map((t) => (
-                <button key={t.tool} className={`icon-btn ${tool === t.tool ? 'on' : ''}`} title={t.label} onClick={() => setTool(t.tool)}>
+                <button
+                  key={t.tool}
+                  className={`icon-btn ${SHORT[t.tool] ? 'labeled' : ''} ${tool === t.tool ? 'on' : ''}`}
+                  title={t.label}
+                  aria-label={t.label}
+                  onClick={() => setTool(t.tool)}
+                >
                   <Icon name={t.icon} />
+                  {SHORT[t.tool] && <span>{SHORT[t.tool]}</span>}
                 </button>
               ))}
             </div>
@@ -942,12 +973,13 @@ function ContextBar({
   redactCount: number;
 }) {
   const sel: any = selected;
-  const hasColor = selected ? 'color' in selected && selected.type !== 'whiteout' : ['ink', 'rect', 'ellipse', 'line', 'arrow', 'text', 'underline', 'strike'].includes(tool);
+  const hasColor = selected ? 'color' in selected && selected.type !== 'whiteout' : ['ink', 'rect', 'ellipse', 'line', 'arrow', 'text', 'underline', 'strike', 'mark'].includes(tool);
   const isHL = selected ? selected.type === 'highlight' : tool === 'highlight';
   const STROKED = ['ink', 'rect', 'ellipse', 'line', 'arrow'];
   const hasWidth = STROKED.includes(selected ? selected.type : tool);
   const hasFont = selected ? selected.type === 'text' || selected.type === 'replace' : tool === 'text';
   const hasFill = selected ? selected.type === 'rect' || selected.type === 'ellipse' : tool === 'rect' || tool === 'ellipse';
+  const isMark = selected ? selected.type === 'mark' : tool === 'mark';
 
   const color = sel?.color ?? (isHL ? style.highlight : style.color);
   const setColor = (c: string) => {
@@ -957,13 +989,15 @@ function ContextBar({
 
   const hints: Partial<Record<Tool, string>> = {
     select: 'Select & copy text Â· click markup to move/resize Â· fill form fields directly on the page',
-    editText: 'Click any text in the document to edit it. The original words are covered and replaced when you save.',
+    editText: 'Every outlined piece of text can be edited: click it, type, then Save. It keeps the original font and size. No outlines? The page is a scan; run All tools → OCR first.',
     highlight: 'Select text to highlight it â€” or drag a box on scanned pages.',
     underline: 'Select text to underline it.',
     strike: 'Select text to strike it through.',
     whiteout: 'Drag to cover content with white (visual only â€” use Redact to truly remove).',
     redact: `Drag over anything sensitive. On save, marked pages are rebuilt so the content is gone for good.${redactCount ? ` (${redactCount} marked)` : ''}`,
     note: 'Click to drop a comment.',
+    mark: 'Click the centre of a box to tick it. Works on printed boxes that are not real form fields.',
+    move: 'Drag a box around text, lines, boxes or pictures, then drag the box where you want it. Saved as a real move, not a picture.',
     text: 'Click anywhere to type new text.',
     place: pendingImage ? 'Click where you want to place it. Esc to cancel.' : '',
     hand: 'Drag to pan.',
@@ -1026,6 +1060,31 @@ function ContextBar({
           )}
         </>
       )}
+      {isMark && (
+        <>
+          <div className="seg small" role="group" aria-label="Mark">
+            {(['check', 'cross', 'dot'] as const).map((k) => (
+              <button
+                key={k}
+                className={(sel?.kind ?? style.mark) === k ? 'on' : ''}
+                onClick={() => (selected ? onChangeSelected((a) => ({ ...a, kind: k }) as Annot) : setStyle({ ...style, mark: k }))}
+              >
+                {k === 'check' ? '✓ Check' : k === 'cross' ? '✗ Cross' : '● Dot'}
+              </button>
+            ))}
+          </div>
+          <label className="ctx-field">
+            Size
+            <input
+              type="number"
+              min={4}
+              max={48}
+              value={sel?.size ?? style.markSize}
+              onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, size: +e.target.value }) as Annot) : setStyle({ ...style, markSize: +e.target.value }))}
+            />
+          </label>
+        </>
+      )}
       {!selected && hints[tool] && <span className="ctx-hint">{hints[tool]}</span>}
       {selected && (
         <button className="small danger" onClick={onDelete}>
@@ -1041,7 +1100,7 @@ function labelFor(a: Annot) {
   const m: Record<string, string> = {
     highlight: 'Highlight', underline: 'Underline', strike: 'Strikethrough', ink: 'Drawing', rect: 'Rectangle',
     ellipse: 'Ellipse', line: 'Line', arrow: 'Arrow', text: 'Text box', replace: 'Edited text', whiteout: 'Whiteout',
-    redact: 'Redaction', image: 'Image', note: 'Comment',
+    redact: 'Redaction', image: 'Image', note: 'Comment', mark: 'Check mark', move: 'Moved area',
   };
   return (a.type === 'image' && a.label === 'signature' ? 'Signature' : m[a.type]) || a.type;
 }

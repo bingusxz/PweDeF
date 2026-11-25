@@ -129,5 +129,90 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
   await doc.destroy();
 }
 
+// ---- true Edit Text: original removed, same typeface/size/baseline ----
+{
+  const fsMod = await import('node:fs');
+  const fontkit = (await import('@pdf-lib/fontkit')).default;
+  const F = (f: string) => `${process.env.WINDIR || 'C:\\Windows'}\\Fonts\\${f}`;
+  const fontFiles: Record<string, string> = { 'Tahoma|true': 'tahomabd.ttf', 'Tahoma|false': 'tahoma.ttf', 'Arial|false': 'arial.ttf' };
+  if (fsMod.existsSync(F('tahomabd.ttf')) && fsMod.existsSync(F('arial.ttf'))) {
+    const d = await PDFDocument.create();
+    d.registerFontkit(fontkit);
+    const tb = await d.embedFont(fsMod.readFileSync(F('tahomabd.ttf')), { subset: true });
+    const ar = await d.embedFont(fsMod.readFileSync(F('arial.ttf')), { subset: true });
+    const p = d.addPage([612, 792]);
+    p.drawText('Type of Request:', { x: 40, y: 700, size: 11, font: tb });
+    p.drawRectangle({ x: 150, y: 698, width: 12, height: 12, borderWidth: 1.5 });
+    p.drawText('Refund', { x: 165, y: 700, size: 11, font: tb });
+    p.drawRectangle({ x: 230, y: 698, width: 12, height: 12, borderWidth: 1.5 });
+    p.drawText('Charge', { x: 245, y: 700, size: 11, font: tb });
+    p.drawText('Installment: ____ months', { x: 300, y: 700, size: 10, font: ar });
+    const src = await d.save();
+
+    // find "Charge" exactly like the editor does (pdf.js text item geometry)
+    const doc = await pdfjs.getDocument({ data: src.slice(), isEvalSupported: false }).promise;
+    const pg = await doc.getPage(1);
+    const vp = pg.getViewport({ scale: 1 });
+    const tc = await pg.getTextContent();
+    const item = (tc.items as any[]).find((it) => it.str === 'Charge');
+    const tx = pdfjs.Util.transform(vp.transform, item.transform);
+    const size = Math.hypot(tx[2], tx[3]);
+    const orig = { x: tx[4] - 1, y: tx[5] - size * 0.95, w: item.width + 2, h: size * 1.25 };
+    await doc.destroy();
+
+    const out = await bake(
+      src,
+      [{ id: 'r', page: 0, type: 'replace', ...orig, orig, text: 'Charge Back', fontSize: size, color: '#000000', bg: '#ffffff',
+         family: 'Tahoma', bold: true, italic: false, baseline: tx[5], startX: tx[4] } as any],
+      {},
+      await viewportGetter(src),
+      { loadSystemFont: async (fam, b) => { const f = fontFiles[`${fam}|${b}`]; return f ? new Uint8Array(fsMod.readFileSync(F(f))) : null; } },
+    );
+    const d2 = await pdfjs.getDocument({ data: out.slice(), isEvalSupported: false }).promise;
+    const pg2 = await d2.getPage(1);
+    const tc2 = await pg2.getTextContent();
+    const strs = (tc2.items as any[]).map((i) => i.str).filter((s) => s.trim());
+    check(!strs.includes('Charge'), 'edit text: original "Charge" removed from the page (not just covered)');
+    check(strs.includes('Charge Back') && strs.includes('Refund') && strs.includes('Type of Request:'), 'edit text: new text present, neighbours untouched');
+    const newItem = (tc2.items as any[]).find((i) => i.str === 'Charge Back');
+    const refund = (tc2.items as any[]).find((i) => i.str === 'Refund');
+    check(Math.abs(newItem.transform[5] - refund.transform[5]) < 0.01, 'edit text: same baseline as the original line');
+    check(Math.abs(Math.hypot(newItem.transform[2], newItem.transform[3]) - 11) < 0.05, 'edit text: same font size');
+    await pg2.getOperatorList();
+    const fontObj: any = pg2.commonObjs.get(newItem.fontName);
+    check(/Tahoma/i.test(fontObj?.name || '') && /bold/i.test(fontObj?.name || ''), `edit text: same typeface (${fontObj?.name})`);
+    const ops = await pg2.getOperatorList();
+    check(ops.fnArray.filter((f: number) => f === pdfjs.OPS.constructPath).length >= 2, 'edit text: checkbox drawings left intact (no white cover)');
+    await d2.destroy();
+  } else console.log('SKIP  edit-text font test (Windows fonts not found)');
+}
+
+// ---- Move tool: a box + its label really move in the content stream ----
+{
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Helvetica);
+  const p = d.addPage([612, 792]);
+  p.drawRectangle({ x: 100, y: 600, width: 40, height: 40, borderWidth: 2 }); // inside the area
+  p.drawRectangle({ x: 400, y: 600, width: 40, height: 40, borderWidth: 2 }); // outside
+  p.drawText('Stay', { x: 400, y: 560, size: 12, font: f });
+  const src = await d.save();
+  // area (page units, y down): x 90..150, top 792-650=142 .. 792-590=202
+  const out = await bake(
+    src,
+    [{ id: 'mv', page: 0, type: 'move', from: { x: 90, y: 142, w: 60, h: 60 }, dx: 200, dy: 100, snapshot: '', texts: [] } as any],
+    {},
+    await viewportGetter(src),
+  );
+  const doc = await pdfjs.getDocument({ data: out.slice(), isEvalSupported: false }).promise;
+  const pg = await doc.getPage(1);
+  const ops = await pg.getOperatorList();
+  // collect transforms applied right before path painting: the moved box gets an extra cm translate(200,-100)
+  const cms = ops.fnArray.map((fn: number, i: number) => (fn === pdfjs.OPS.transform ? ops.argsArray[i] : null)).filter(Boolean);
+  check(cms.some((m: number[]) => Math.abs(m[4] - 200) < 0.01 && Math.abs(m[5] + 100) < 0.01), 'move: box inside the area shifted by (+200, -100) pt');
+  const tc = await pg.getTextContent();
+  check((tc.items as any[]).some((i) => i.str === 'Stay' && Math.abs(i.transform[4] - 400) < 0.01), 'move: content outside the area untouched');
+  await doc.destroy();
+}
+
 console.log(failures ? `\n${failures} FAILED` : '\nAll engine tests passed');
 process.exit(failures ? 1 : 0);

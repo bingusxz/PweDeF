@@ -5,7 +5,7 @@ import {
   Redo2, ZoomIn, ZoomOut, Maximize, Files, Search, MessagesSquare, RotateCcw, RotateCw, Trash2, FileOutput,
   FilePlus2, Copy, Scissors, Combine, LayoutGrid, Layers, X, Check, ChevronLeft, ChevronRight, ChevronDown,
   ClipboardList, ScanText, Info, Droplets, Hash, Download, File, FileArchive, Sparkles, FileText, Sheet,
-  Presentation, Globe, Plus, FileType, FileImage, FileSpreadsheet, Lock, ShieldOff, ArrowRightLeft, PanelsTopLeft,
+  Presentation, Globe, Plus, Sun, Moon, SunMoon, Move, FileType, FileImage, FileSpreadsheet, Lock, ShieldOff, ArrowRightLeft, PanelsTopLeft,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -44,6 +44,10 @@ const MAP: Record<string, LucideIcon> = {
   extract: FileOutput,
   plus: FilePlus2,
   add: Plus,
+  sun: Sun,
+  moon: Moon,
+  themeAuto: SunMoon,
+  moveTool: Move,
   copy: Copy,
   split: Scissors,
   merge: Combine,

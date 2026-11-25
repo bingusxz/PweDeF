@@ -6,6 +6,8 @@ import { BatchDialog } from './components/BatchDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToolHub, type HubAction } from './components/ToolHub';
 import { Modal } from './components/Modal';
+import { Wordmark } from './components/Logo';
+import { applyTheme, loadTheme, nextTheme, type ThemeMode } from './lib/theme';
 import { Icon } from './components/Icon';
 import { onToast, toast, errText, type ToastMsg } from './lib/toast';
 import { uid } from './lib/util';
@@ -102,6 +104,8 @@ export default function App() {
     }
   };
 
+  const [theme, setTheme] = useState<ThemeMode>(loadTheme);
+  useEffect(() => applyTheme(theme), []);
   const [caps, setCaps] = useState<{ office: boolean; libreoffice: boolean } | null>(null);
   const [urlDialog, setUrlDialog] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
@@ -269,8 +273,8 @@ export default function App() {
       onDrop={onDrop}
     >
       <header className="titlebar">
-        <button className={`brand ${!activeTab ? 'on' : ''}`} onClick={() => setActive(null)} title="Home">
-          <span className="logo">A</span> Acrobatics
+        <button className={`brand ${!activeTab ? 'on' : ''}`} onClick={() => setActive(null)} title="All tools (home)">
+          <Wordmark />
         </button>
         <div className="tabs">
           {tabs.map((t) => (
@@ -300,6 +304,18 @@ export default function App() {
             {update.ready ? `Restart to update to v${update.version}` : `Downloading v${update.version}…`}
           </button>
         )}
+        <button
+          className="icon-btn theme-btn"
+          onClick={() => {
+            const m = nextTheme(theme);
+            setTheme(m);
+            applyTheme(m);
+          }}
+          title={`Appearance: ${theme === 'system' ? 'match Windows' : theme} (click to change)`}
+          aria-label="Change appearance"
+        >
+          <Icon name={theme === 'system' ? 'themeAuto' : theme === 'light' ? 'sun' : 'moon'} size={16} />
+        </button>
       </header>
 
       <main className="main">
@@ -412,47 +428,58 @@ function Home({
   onAction: (a: HubAction) => void;
   onRecent: (r: Recent) => void;
 }) {
+  const stamp = (t: number) =>
+    new Date(t).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const folder = (p: string) => p.replace(/[\\/][^\\/]*$/, '');
   return (
     <div className="home">
-      <div className="home-inner">
-        <div className="home-hero">
-          <div>
-            <h1>
-              Acrobatics <span className="muted">all-in-one PDF studio</span>
-            </h1>
-            <p className="muted">Edit, sign, convert, organize — free and in-house. Drag files anywhere to start.</p>
+      <div className="home-sheet">
+        <header className="home-head">
+          <div className="home-title">
+            <h1>Acrobatics</h1>
+            <p>Edit, sign, convert and organize PDFs. Drop files anywhere on this window to start.</p>
           </div>
-          <button className="primary big" onClick={() => onAction('open')}>
-            <Icon name="open" size={20} /> Open PDF
-          </button>
+          <div className="home-actions">
+            <span className="serial" title="Installed version. It updates itself.">
+              Version <b>{version || '—'}</b>
+            </span>
+            <button className="primary big" onClick={() => onAction('open')}>
+              <Icon name="open" size={18} /> Open PDF
+            </button>
+          </div>
+        </header>
+
+        <div className="home-body">
+          <ToolHub onAction={onAction} caps={caps} />
+
+          <aside className="filing-log" aria-label="Recent files">
+            <h2>Filing log</h2>
+            {recent.length ? (
+              <ol>
+                {recent.map((r) => (
+                  <li key={r.path}>
+                    <button className="log-row" onClick={() => onRecent(r)} title={r.path}>
+                      <span className="log-name">{r.name}</span>
+                      <span className="log-folder">{folder(r.path)}</span>
+                      <span className="log-time">{stamp(r.at)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="empty-line">PDFs you open are logged here so you can reopen them in one click.</p>
+            )}
+            <button
+              className="link-btn update-check"
+              onClick={async () => {
+                const r = await window.acro.checkUpdates();
+                toast(r.message, r.status === 'error' ? 'error' : r.status === 'latest' ? 'ok' : 'info');
+              }}
+            >
+              Check for updates
+            </button>
+          </aside>
         </div>
-        <ToolHub onAction={onAction} caps={caps} />
-        <h3>Recent</h3>
-        {recent.length ? (
-          <div className="recent">
-            {recent.map((r) => (
-              <button key={r.path} className="recent-row" onClick={() => onRecent(r)}>
-                <Icon name="file" size={16} />
-                <span className="grow">{r.name}</span>
-                <span className="muted small-text">{r.path}</span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="muted">Files you open will appear here.</p>
-        )}
-        <p className="muted small-text version">
-          Acrobatics v{version} ·{' '}
-          <button
-            className="link-btn"
-            onClick={async () => {
-              const r = await window.acro.checkUpdates();
-              toast(r.message, r.status === 'error' ? 'error' : r.status === 'latest' ? 'ok' : 'info');
-            }}
-          >
-            Check for updates
-          </button>
-        </p>
       </div>
     </div>
   );

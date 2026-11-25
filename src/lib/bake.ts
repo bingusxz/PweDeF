@@ -18,12 +18,16 @@ import {
   PDFHexString,
 } from 'pdf-lib';
 import type { PageViewport } from './pdf';
-import type { Annot, FormValues } from '../types';
+import type { Annot, FormValues, MoveAnnot, TextAnnot } from '../types';
+import { moveGraphicsInRect, removeTextInRects } from './textremove';
+import { markStrokes } from './marks';
 import { dataUrlToBytes, hexToRgb01, normRect, winAnsiSafe } from './util';
 
 export interface BakeOptions {
   flattenForms?: boolean;
   author?: string;
+  /** returns the installed font file (TTF/OTF bytes) for a family + style, or null */
+  loadSystemFont?: (family: string, bold: boolean, italic: boolean) => Promise<Uint8Array | null>;
 }
 
 type ViewportGetter = (pageIndex: number) => Promise<PageViewport>;
@@ -65,10 +69,35 @@ export async function bake(
     serif: [StandardFonts.TimesRoman, StandardFonts.TimesRomanBold],
     mono: [StandardFonts.Courier, StandardFonts.CourierBold],
   } as const;
-  const getFont = async (family: 'sans' | 'serif' | 'mono', bold: boolean) => {
-    const name = FONTS[family][bold ? 1 : 0];
+  const ITALIC = {
+    sans: [StandardFonts.HelveticaOblique, StandardFonts.HelveticaBoldOblique],
+    serif: [StandardFonts.TimesRomanItalic, StandardFonts.TimesRomanBoldItalic],
+    mono: [StandardFonts.CourierOblique, StandardFonts.CourierBoldOblique],
+  } as const;
+  const getFont = async (family: 'sans' | 'serif' | 'mono', bold: boolean, italic = false) => {
+    const name = (italic ? ITALIC : FONTS)[family][bold ? 1 : 0];
     if (!fontCache.has(name)) fontCache.set(name, await doc.embedFont(name));
     return fontCache.get(name)!;
+  };
+  /** The real installed typeface (e.g. Tahoma Bold) so edited text matches the original exactly. */
+  let fontkitReady = false;
+  const getSystemFont = async (family: string, bold: boolean, italic: boolean): Promise<PDFFont | null> => {
+    if (!opts.loadSystemFont) return null;
+    const key = `sys:${family}|${bold}|${italic}`;
+    if (fontCache.has(key)) return fontCache.get(key)!;
+    const res = await opts.loadSystemFont(family, bold, italic);
+    if (!res) return null;
+    if (!fontkitReady) {
+      doc.registerFontkit((await import('@pdf-lib/fontkit')).default);
+      fontkitReady = true;
+    }
+    try {
+      const f = await doc.embedFont(res, { subset: true });
+      fontCache.set(key, f);
+      return f;
+    } catch {
+      return null;
+    }
   };
 
   // ---- forms first so annotations can sit on top of flattened fields ----
@@ -103,7 +132,7 @@ export async function bake(
   const byPage = new Map<number, Annot[]>();
   for (const a of annots) {
     if (!byPage.has(a.page)) byPage.set(a.page, []);
-    byPage.get(a.page)!.push(a);
+    byPage.get(a.page)!.push({ ...a } as Annot); // copies: baking adjusts fields and must not touch editor state
   }
 
   for (const [pageIndex, list] of byPage) {
@@ -121,9 +150,58 @@ export async function bake(
       return normRect(a.x, a.y, b.x, b.y);
     };
 
+    // Move tool: shift graphics/images inside the area in the content stream itself,
+    // and turn the area's text runs into edits drawn at the new position.
+    for (const mv of list.filter((a): a is MoveAnnot => a.type === 'move')) {
+      const from = box(mv.from.x, mv.from.y, mv.from.w, mv.from.h);
+      const p0 = P(mv.from.x, mv.from.y);
+      const p1 = P(mv.from.x + mv.dx, mv.from.y + mv.dy);
+      try {
+        moveGraphicsInRect(doc, page, from, p1.x - p0.x, p1.y - p0.y);
+      } catch (e) {
+        console.warn('graphics move failed', e);
+      }
+      for (const t of mv.texts)
+        list.push({
+          id: `${mv.id}-${t.startX}-${t.baseline}`,
+          page: pageIndex,
+          type: 'replace',
+          x: t.orig.x + mv.dx,
+          y: t.orig.y + mv.dy,
+          w: t.orig.w,
+          h: t.orig.h,
+          orig: t.orig,
+          text: t.text,
+          fontSize: t.fontSize,
+          color: t.color,
+          bg: '#ffffff',
+          font: t.font,
+          family: t.family,
+          bold: t.bold,
+          italic: t.italic,
+          baseline: t.baseline + mv.dy,
+          startX: t.startX + mv.dx,
+        });
+    }
+
+    // Edited text: delete the original words from the page content (true edit, like Acrobat).
+    // Only if that can't be done safely do we fall back to covering them with white.
+    const replaces = list.filter((a): a is TextAnnot => a.type === 'replace' && !!a.orig);
+    if (replaces.length) {
+      let res = { removed: 0, unsafe: true };
+      try {
+        res = removeTextInRects(doc, page, replaces.map((a) => box(a.orig!.x, a.orig!.y, a.orig!.w, a.orig!.h)));
+      } catch (e) {
+        console.warn('text removal failed; covering instead', e);
+      }
+      const clean = res.removed > 0 && !res.unsafe;
+      for (const a of replaces) a.bg = clean ? null : a.bg || '#ffffff';
+    }
+
     // whiteouts & edit-text backgrounds go first so other markup draws above them
     const ordered = [...list].sort((a, b) => rank(a) - rank(b));
-    for (const a of ordered) await drawAnnot(doc, page, a, { P, box, rot, helv, helvBold, font: getFont, imageCache, author: opts.author });
+    for (const a of ordered)
+      await drawAnnot(doc, page, a, { P, box, rot, helv, helvBold, font: getFont, systemFont: getSystemFont, imageCache, author: opts.author });
   }
 
   return doc.save({ useObjectStreams: true });
@@ -142,7 +220,8 @@ interface Ctx {
   rot: number;
   helv: PDFFont;
   helvBold: PDFFont;
-  font: (family: 'sans' | 'serif' | 'mono', bold: boolean) => Promise<PDFFont>;
+  font: (family: 'sans' | 'serif' | 'mono', bold: boolean, italic?: boolean) => Promise<PDFFont>;
+  systemFont: (family: string, bold: boolean, italic: boolean) => Promise<PDFFont | null>;
   imageCache: Map<string, any>;
   author?: string;
 }
@@ -237,19 +316,22 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
     }
     case 'text':
     case 'replace': {
-      const font = await c.font(a.font || 'sans', !!a.bold);
+      const sys = a.family ? await c.systemFont(a.family, !!a.bold, !!a.italic) : null;
+      const font = sys || (await c.font(a.font || 'sans', !!a.bold, !!a.italic));
+      const safe = (s: string) => (sys ? s.replace(/\t/g, '    ') : winAnsiSafe(s));
       if (a.bg) {
-        const r = box(a.x, a.y, a.w, a.h);
+        const r = a.orig ? box(a.orig.x, a.orig.y, a.orig.w, a.orig.h) : box(a.x, a.y, a.w, a.h);
         page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: col(a.bg) });
       }
-      // edited lines stay on one line (like the original); new text boxes wrap
-      const lines =
-        a.type === 'replace' ? winAnsiSafe(a.text).split('\n') : wrapText(font, winAnsiSafe(a.text), a.fontSize, Math.max(a.w - 4, 10));
+      // edited lines stay on one line at the original baseline; new text boxes wrap
+      const lines = a.type === 'replace' ? safe(a.text).split('\n') : wrapText(font, safe(a.text), a.fontSize, Math.max(a.w - 4, 10));
       const lh = a.fontSize * 1.2;
+      const x0 = a.type === 'replace' && a.startX !== undefined ? a.startX : a.x + 2;
       lines.forEach((line, i) => {
         if (!line) return;
-        const baseline = a.y + 2 + i * lh + a.fontSize * 0.95;
-        const o = P(a.x + 2, baseline);
+        const baseline =
+          a.type === 'replace' && a.baseline !== undefined ? a.baseline + i * lh : a.y + 2 + i * lh + a.fontSize * 0.95;
+        const o = P(x0, baseline);
         page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot) });
       });
       break;
@@ -263,6 +345,24 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
       }
       const o = P(a.x, a.y + a.h);
       page.drawImage(img, { x: o.x, y: o.y, width: a.w, height: a.h, rotate: degrees(rot) });
+      break;
+    }
+    case 'mark': {
+      const color = col(a.color);
+      if (a.kind === 'dot') {
+        const cpt = P(a.x, a.y);
+        page.drawCircle({ x: cpt.x, y: cpt.y, size: a.size * 0.28, color });
+      } else {
+        for (const pts of markStrokes(a.kind))
+          for (let i = 1; i < pts.length; i++)
+            page.drawLine({
+              start: P(a.x + pts[i - 1][0] * a.size, a.y + pts[i - 1][1] * a.size),
+              end: P(a.x + pts[i][0] * a.size, a.y + pts[i][1] * a.size),
+              thickness: Math.max(0.8, a.size * 0.13),
+              color,
+              lineCap: LineCapStyle.Round,
+            });
+      }
       break;
     }
     case 'note': {
