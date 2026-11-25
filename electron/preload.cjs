@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('acro', {
   ready: () => ipcRenderer.invoke('app:ready'),
   confirmClose: () => ipcRenderer.invoke('app:confirmClose'),
   installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+  checkUpdates: () => ipcRenderer.invoke('app:checkUpdates'),
   convertCaps: () => ipcRenderer.invoke('convert:caps'),
   officeToPdf: (kind) => ipcRenderer.invoke('convert:officeToPdf', kind),
   webToPdf: (url, landscape) => ipcRenderer.invoke('convert:webToPdf', { url, landscape }),

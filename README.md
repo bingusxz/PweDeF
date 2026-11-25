@@ -44,14 +44,38 @@ src/components/        React UI: Editor, PageView, Thumbnails, ToolHub, dialogs
 tests/engine.test.ts   headless engine tests
 ```
 
-## Releasing an update (auto-update)
+## Releasing updates (automatic)
 
-1. `npm version patch` (or `minor` / `major`) bumps the version and creates a tag.
-2. `git push --follow-tags` pushes the commit and the tag.
-3. The **Release** GitHub Action builds `Acrobatics-Setup-x.y.z.exe` and publishes it as a GitHub Release.
-4. Every installed copy checks for updates at launch and every 4 hours, downloads in the background, and shows **"Restart to update"**.
+**Every push to `main` ships an update.** You don't need to bump the version by hand.
 
-First install: download the latest `Acrobatics-Setup-*.exe` from the repo's Releases page.
+1. Push to `main`.
+2. The **Release** workflow type-checks, builds and tests. If anything fails, nothing is released.
+3. It stamps the version as `major.minor.<build number>` (for example `0.1.7`) and publishes `Acrobatics-Setup-0.1.7.exe` to **[bingusxz/acrobatics-releases](https://github.com/bingusxz/acrobatics-releases/releases)**.
+4. Every installed Acrobatics checks hourly (and on launch), downloads in the background, and shows **"Restart to update"**. Staff can also click **Check for updates** on the home screen.
+
+Pushes that only change `.md` files or `docs/` don't release. To start a new line (for example 0.2.x), change `version` in `package.json`.
+
+### Why two repos
+
+| Repo | Visibility | Contains |
+|---|---|---|
+| `bingusxz/acrobatics` | **private** | source code |
+| `bingusxz/acrobatics-releases` | public | installers only (what the auto-updater downloads) |
+
+The app reads updates from the public releases repo, so it needs no token. A token embedded in the app could be extracted and used against the private repo.
+
+### One-time setup
+
+1. Create the **public** repo `bingusxz/acrobatics-releases` and tick "Add a README" so it isn't empty.
+2. Create a **fine-grained personal access token** (GitHub → Settings → Developer settings → Fine-grained tokens):
+   - Repository access: only `bingusxz/acrobatics-releases`
+   - Permissions: **Contents: Read and write**
+3. In `bingusxz/acrobatics` → Settings → Secrets and variables → Actions, add a secret named **`RELEASES_TOKEN`** with that token.
+4. Make `bingusxz/acrobatics` **private** (Settings → General → Danger Zone → Change visibility).
+
+Until `RELEASES_TOKEN` exists, pushes still build and test but don't publish. The workflow shows a warning.
+
+**First install:** download `Acrobatics-Setup-*.exe` from the releases repo. After that it updates itself.
 The installer isn't code-signed yet, so Windows SmartScreen will warn on first run. See the roadmap.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) and [`docs/AI-ASSISTANT-PLAN.md`](docs/AI-ASSISTANT-PLAN.md).

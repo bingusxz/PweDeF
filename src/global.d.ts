@@ -24,6 +24,7 @@ declare global {
       ready(): Promise<OpenedFile[]>;
       confirmClose(): Promise<void>;
       installUpdate(): Promise<void>;
+      checkUpdates(): Promise<{ status: 'dev' | 'latest' | 'downloading' | 'error'; message: string }>;
       convertCaps(): Promise<{ office: boolean; libreoffice: boolean }>;
       officeToPdf(kind?: 'word' | 'excel' | 'ppt'): Promise<{ name: string; data?: Uint8Array; error?: string }[]>;
       webToPdf(url: string, landscape?: boolean): Promise<{ name: string; data: Uint8Array }>;

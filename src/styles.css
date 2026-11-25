@@ -338,6 +338,18 @@ code {
 .version {
   margin-top: 40px;
 }
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--blue);
+  font-size: inherit;
+  display: inline;
+}
+.link-btn:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
 
 /* ---------- editor ---------- */
 .editor {

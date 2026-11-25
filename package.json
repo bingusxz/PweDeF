@@ -59,7 +59,7 @@
       {
         "provider": "github",
         "owner": "bingusxz",
-        "repo": "acrobatics",
+        "repo": "acrobatics-releases",
         "releaseType": "release"
       }
     ]

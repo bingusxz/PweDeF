@@ -194,6 +194,10 @@ ipcMain.handle('app:installUpdate', () => {
 });
 
 // ---------- Auto update (GitHub Releases) ----------
+// Every push to main publishes a new release (see .github/workflows/release.yml).
+// Installed copies check on launch + hourly, download in the background, and
+// install on restart (the UI shows a "Restart to update" button).
+let updaterRef = null;
 function setupAutoUpdate() {
   if (DEV_URL || !app.isPackaged) return;
   let autoUpdater;
@@ -208,8 +212,22 @@ function setupAutoUpdate() {
   autoUpdater.on('update-downloaded', (info) => win && win.webContents.send('update:ready', info.version));
   autoUpdater.on('error', (err) => console.error('updater', err));
   autoUpdater.checkForUpdates().catch(() => {});
-  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 1000 * 60 * 60 * 4);
+  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 1000 * 60 * 60);
+  updaterRef = autoUpdater;
 }
+
+// "Check for updates" button on the home screen
+ipcMain.handle('app:checkUpdates', async () => {
+  if (!updaterRef) return { status: 'dev', message: 'Updates only work in the installed app' };
+  try {
+    const res = await updaterRef.checkForUpdates();
+    const latest = res?.updateInfo?.version;
+    if (latest && latest !== app.getVersion()) return { status: 'downloading', message: `Downloading v${latest}…` };
+    return { status: 'latest', message: `You're on the latest version (v${app.getVersion()})` };
+  } catch (e) {
+    return { status: 'error', message: 'Could not check for updates: ' + (e?.message || e) };
+  }
+});
 
 // ---------- Lifecycle ----------
 const gotLock = app.requestSingleInstanceLock();

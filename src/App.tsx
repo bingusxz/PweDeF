@@ -441,7 +441,18 @@ function Home({
         ) : (
           <p className="muted">Files you open will appear here.</p>
         )}
-        <p className="muted small-text version">Acrobatics v{version}</p>
+        <p className="muted small-text version">
+          Acrobatics v{version} ·{' '}
+          <button
+            className="link-btn"
+            onClick={async () => {
+              const r = await window.acro.checkUpdates();
+              toast(r.message, r.status === 'error' ? 'error' : r.status === 'latest' ? 'ok' : 'info');
+            }}
+          >
+            Check for updates
+          </button>
+        </p>
       </div>
     </div>
   );

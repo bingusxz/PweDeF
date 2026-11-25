@@ -1,9 +1,7 @@
-# Runs on every push / pull request: type-check, build and engine tests.
+# Checks pull requests before they're merged (pushes to main are checked by release.yml).
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
 
 jobs:
