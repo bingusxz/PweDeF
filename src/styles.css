@@ -471,12 +471,15 @@ code {
 .home {
   flex: 1;
   overflow: auto;
+  display: flex;
+  align-items: safe center;
+  justify-content: center;
   background: var(--desk);
-  padding: 28px 32px 48px;
+  padding: 24px 32px;
 }
 .home-sheet {
-  max-width: 1240px;
-  margin: 0 auto;
+  width: min(100%, 1240px);
+  margin: auto;
   background: var(--paper);
   box-shadow: var(--shadow-sheet);
   border-radius: 2px;
@@ -1969,13 +1972,13 @@ g.svg-annot.interactive {
 .form-section-title { border-radius: 2px 6px 0 0; }
 
 :root[data-theme='dark'] .painted-wordmark {
-  background: #fff3dc;
+  background: #ffd36b;
   padding: 2px 5px;
   border-radius: 3px 6px 3px 5px;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .painted-wordmark {
-    background: #fff3dc;
+    background: #ffd36b;
     padding: 2px 5px;
     border-radius: 3px 6px 3px 5px;
   }
