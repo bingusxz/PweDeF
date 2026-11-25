@@ -50,7 +50,7 @@ tests/engine.test.ts   headless engine tests
 
 1. Push to `main`.
 2. The **Release** workflow type-checks, builds and tests. If anything fails, nothing is released.
-3. The workflow reads the version from package.json and publishes the Windows installer on this repo?s [Releases](https://github.com/bingusxz/acrobatics/releases) page. Bump the version for each new release.
+3. The workflow reads the version from package.json and publishes the Windows installer on this repo?s [Releases](https://github.com/bingusxz/PweDeF/releases) page. Bump the version for each new release.
 4. Every installed PweDeF checks hourly (and on launch), downloads in the background, and shows **"Restart to update"**. Users can also click **Check for updates** on the home screen.
 
 Pushes that only change `.md` files or `docs/` don't release. To start a new line (for example 0.2.x), change `version` in `package.json`.
