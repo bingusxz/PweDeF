@@ -275,9 +275,11 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     const me = items[i];
     if (!me) return [i];
     const g = itemGeom(me);
+    // same font, or a punctuation-only fragment (Word often stores a trailing "." in another font)
+    const isPunct = (s: string) => /^[\s.,:;!?)\]'"\-–—]+$/.test(s);
     const same = items
       .map((it, k) => ({ it, k }))
-      .filter(({ it }) => it.str && it.fontName === me.fontName && it.str.length >= 0)
+      .filter(({ it, k }) => it.str && (it.fontName === me.fontName || k === i || isPunct(it.str)))
       .map(({ it, k }) => ({ k, q: itemGeom(it) }))
       .filter(({ q }) => Math.abs(q.baseline - g.baseline) < 0.5 && Math.abs(q.size - g.size) < 0.2)
       .sort((a, b) => a.q.startX - b.q.startX);
@@ -942,7 +944,8 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur();
-                e.stopPropagation();
+                // let app shortcuts like Ctrl+S through; plain typing stays in the box
+                if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y') e.stopPropagation();
               }}
             />
           ) : (
@@ -990,7 +993,9 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
                 onChange={(e) => ed.changeAnnot(a.id, (c) => ({ ...c, text: e.target.value }) as Annot, false)}
                 onFocus={() => ed.edit(a.id)}
                 onBlur={() => ed.edit(null)}
-                onKeyDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y') e.stopPropagation();
+                }}
               />
             </div>
           )}

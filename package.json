@@ -21,7 +21,8 @@
     "release": "npm run build && electron-builder --win --publish always",
     "postinstall": "node scripts/copy-pdfjs-assets.cjs",
     "predev": "node scripts/copy-pdfjs-assets.cjs",
-    "test:engine": "rolldown -c tests/rolldown.config.mjs && node .test-out/engine.mjs"
+    "test:engine": "rolldown -c tests/rolldown.config.mjs && node .test-out/engine.mjs",
+    "test:fuzz": "rolldown -c tests/rolldown.fuzz.mjs && node .test-out/linefuzz.mjs"
   },
   "build": {
     "appId": "ph.mf.acrobatics",

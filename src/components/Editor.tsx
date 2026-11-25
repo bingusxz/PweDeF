@@ -248,6 +248,12 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   // ---------- save ----------
   const save = useCallback(
     async (as = false) => {
+      // Saving mid-typing: finish the edit first (this runs the line push-along), then let React settle.
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active.closest('.page')) {
+        active.blur();
+        await new Promise((r) => setTimeout(r, 120));
+      }
       const t = tabRef.current;
       setBusy({ msg: 'Saving…' });
       try {

@@ -13,6 +13,8 @@ export interface PdfRect {
   y: number;
   w: number;
   h: number;
+  /** font size of the text this rect targets: runs of a clearly different size are left alone */
+  size?: number;
 }
 
 type M = [number, number, number, number, number, number];
@@ -274,8 +276,18 @@ export function removeTextInRects(
   let unsafe = false;
   let removed = 0;
 
-  const inside = (p: { x: number; y: number }, slack: number) =>
-    rects.some((r) => p.x >= r.x - slack && p.x <= r.x + r.w + slack && p.y >= r.y - slack && p.y <= r.y + r.h + slack);
+  // Horizontal slack is generous; vertical is strict. Edit rects run from ~0.3em below the
+  // baseline to ~0.95em above it, so a run belongs to this line only when its baseline sits in
+  // the lower half of the rect. (A loose vertical check deleted the line above on tightly
+  // spaced forms.)
+  let runSize = 0; // size of the run being tested (set before each check)
+  const hit = (r: PdfRect, p: { x: number; y: number }, slack: number) =>
+    p.x >= r.x - slack &&
+    p.x <= r.x + r.w + slack &&
+    p.y >= r.y - 1 &&
+    p.y <= r.y + r.h * 0.55 &&
+    (!r.size || !runSize || Math.abs(runSize - r.size) <= Math.max(0.3, r.size * 0.04));
+  const inside = (p: { x: number; y: number }, slack: number) => rects.some((r) => hit(r, p, slack));
 
   const showAdvance = (items: Tok[]): number | null => {
     if (!font) return null;
@@ -371,6 +383,7 @@ export function removeTextInRects(
           const p0 = apply(trm, 0, 0);
           const adv = showAdvance(items);
           const size = Math.abs(fs * Math.hypot(trm[0], trm[1]) || fs);
+          runSize = size;
           const slack = Math.max(1.5, size * 0.35);
           if (inside(p0, slack)) {
             if (adv === null) unsafe = true;
@@ -380,7 +393,7 @@ export function removeTextInRects(
                 cuts.push([start, tok.e]);
                 removed++;
                 // remember the spacing the document used, so the replacement matches it
-                const k = rects.findIndex((r) => p0.x >= r.x - slack && p0.x <= r.x + r.w + slack && p0.y >= r.y - slack && p0.y <= r.y + r.h + slack);
+                const k = rects.findIndex((r) => hit(r, p0, slack));
                 if (k >= 0 && !styles[k]) styles[k] = { tc, th };
               } else unsafe = true;
             }

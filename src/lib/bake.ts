@@ -198,7 +198,7 @@ export async function bake(
     if (replaces.length) {
       let res: ReturnType<typeof removeTextInRects> = { removed: 0, unsafe: true, styles: [] };
       try {
-        res = removeTextInRects(doc, page, replaces.map((a) => box(a.orig!.x, a.orig!.y, a.orig!.w, a.orig!.h)));
+        res = removeTextInRects(doc, page, replaces.map((a) => ({ ...box(a.orig!.x, a.orig!.y, a.orig!.w, a.orig!.h), size: a.fontSize })));
       } catch (e) {
         console.warn('text removal failed; covering instead', e);
       }
