@@ -3,8 +3,8 @@
 #   1. Push your changes to main.
 #   2. This workflow type-checks, builds and runs the engine tests (a failure stops the release).
 #   3. It stamps the version as <major>.<minor>.<build number>, e.g. 0.1.7,
-#      builds the Windows installer, and publishes it as a GitHub Release.
-#   4. Every installed Acrobatics checks GitHub hourly, downloads the update in the
+#      builds the Windows installer, and publishes it as a GitHub Release in this repo.
+#   4. Every installed Acrobatics checks hourly, downloads the update in the
 #      background, and shows "Restart to update".
 #
 # To start a new minor/major line, change "version" in package.json (e.g. 0.2.0).
@@ -20,14 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-
-# Source code lives in this PRIVATE repo; installers are published to the PUBLIC
-# repo bingusxz/acrobatics-releases so the app can download updates without a token.
-# Needs repo secret RELEASES_TOKEN: a fine-grained token with
-# "Contents: Read and write" on bingusxz/acrobatics-releases only.
-env:
-  HAS_RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN != '' }}
+  contents: write
 
 concurrency:
   group: release
@@ -60,12 +53,6 @@ jobs:
           echo "Releasing v$v"
 
       - name: Package & publish installer
-        if: env.HAS_RELEASES_TOKEN == 'true'
         run: npx electron-builder --win --publish always
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-
-      - name: Publishing skipped (no RELEASES_TOKEN secret yet)
-        if: env.HAS_RELEASES_TOKEN != 'true'
-        shell: bash
-        run: echo "::warning::Build OK but not published. Add the RELEASES_TOKEN secret (see README → Releasing) to enable auto-update releases."
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

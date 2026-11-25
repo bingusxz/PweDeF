@@ -50,32 +50,14 @@ tests/engine.test.ts   headless engine tests
 
 1. Push to `main`.
 2. The **Release** workflow type-checks, builds and tests. If anything fails, nothing is released.
-3. It stamps the version as `major.minor.<build number>` (for example `0.1.7`) and publishes `Acrobatics-Setup-0.1.7.exe` to **[bingusxz/acrobatics-releases](https://github.com/bingusxz/acrobatics-releases/releases)**.
-4. Every installed Acrobatics checks hourly (and on launch), downloads in the background, and shows **"Restart to update"**. Staff can also click **Check for updates** on the home screen.
+3. It stamps the version as `major.minor.<build number>` (for example `0.1.7`) and publishes `Acrobatics-Setup-0.1.7.exe` on this repo's **[Releases](https://github.com/bingusxz/acrobatics/releases)** page.
+4. Every installed Acrobatics checks hourly (and on launch), downloads in the background, and shows **"Restart to update"**. Users can also click **Check for updates** on the home screen.
 
 Pushes that only change `.md` files or `docs/` don't release. To start a new line (for example 0.2.x), change `version` in `package.json`.
 
-### Why two repos
+No setup is needed: the workflow publishes with GitHub's built-in token, and because the repo is public, installed apps download updates without any key. Only the repo owner and collaborators can push or publish releases.
 
-| Repo | Visibility | Contains |
-|---|---|---|
-| `bingusxz/acrobatics` | **private** | source code |
-| `bingusxz/acrobatics-releases` | public | installers only (what the auto-updater downloads) |
-
-The app reads updates from the public releases repo, so it needs no token. A token embedded in the app could be extracted and used against the private repo.
-
-### One-time setup
-
-1. Create the **public** repo `bingusxz/acrobatics-releases` and tick "Add a README" so it isn't empty.
-2. Create a **fine-grained personal access token** (GitHub → Settings → Developer settings → Fine-grained tokens):
-   - Repository access: only `bingusxz/acrobatics-releases`
-   - Permissions: **Contents: Read and write**
-3. In `bingusxz/acrobatics` → Settings → Secrets and variables → Actions, add a secret named **`RELEASES_TOKEN`** with that token.
-4. Make `bingusxz/acrobatics` **private** (Settings → General → Danger Zone → Change visibility).
-
-Until `RELEASES_TOKEN` exists, pushes still build and test but don't publish. The workflow shows a warning.
-
-**First install:** download `Acrobatics-Setup-*.exe` from the releases repo. After that it updates itself.
+**First install:** send people `Acrobatics-Setup-*.exe` from the Releases page. After that it updates itself.
 The installer isn't code-signed yet, so Windows SmartScreen will warn on first run. See the roadmap.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) and [`docs/AI-ASSISTANT-PLAN.md`](docs/AI-ASSISTANT-PLAN.md).
