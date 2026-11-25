@@ -12,8 +12,81 @@
     "type": "git",
     "url": "https://github.com/bingusxz/acrobatics.git"
   },
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build": "node scripts/copy-pdfjs-assets.cjs && tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "start": "electron .",
+    "dist": "npm run build && electron-builder --win --publish never",
+    "release": "npm run build && electron-builder --win --publish always",
+    "postinstall": "node scripts/copy-pdfjs-assets.cjs",
+    "predev": "node scripts/copy-pdfjs-assets.cjs",
+    "test:engine": "rolldown -c tests/rolldown.config.mjs && node .test-out/engine.mjs"
+  },
+  "build": {
+    "appId": "ph.mf.acrobatics",
+    "productName": "Acrobatics",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF Document",
+        "description": "PDF Document",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "bingusxz",
+        "repo": "acrobatics",
+        "releaseType": "release"
+      }
+    ]
+  },
   "dependencies": {
     "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.1",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "cross-env": "^10.1.0",
+    "docx": "^9.16.0",
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^1.79.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
+    "pptxgenjs": "^4.0.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tesseract.js": "^7.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "wait-on": "^9.5.1"
   },
   "allowScripts": {
     "electron@45.5.0": true
