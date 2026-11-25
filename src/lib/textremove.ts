@@ -242,8 +242,19 @@ const SHOW_OPS = new Set(['Tj', 'TJ', "'", '"']);
  * Returns how many runs were removed and whether any run that starts inside a rect
  * could not be measured (caller should keep a cover in that case).
  */
-export function removeTextInRects(doc: PDFDocument, page: PDFPage, rects: PdfRect[]): { removed: number; unsafe: boolean } {
-  if (!rects.length) return { removed: 0, unsafe: false };
+export interface RunStyle {
+  /** character spacing (Tc) and horizontal scale (Tz/100) the original run used */
+  tc: number;
+  th: number;
+}
+
+export function removeTextInRects(
+  doc: PDFDocument,
+  page: PDFPage,
+  rects: PdfRect[],
+): { removed: number; unsafe: boolean; styles: (RunStyle | null)[] } {
+  const styles: (RunStyle | null)[] = rects.map(() => null);
+  if (!rects.length) return { removed: 0, unsafe: false, styles };
   const bytes = pageContent(doc, page);
   const toks = tokenize(bytes);
   const fontsDict = page.node.Resources()?.lookupMaybe(PDFName.of('Font'), PDFDict);
@@ -364,10 +375,13 @@ export function removeTextInRects(doc: PDFDocument, page: PDFPage, rects: PdfRec
           if (inside(p0, slack)) {
             if (adv === null) unsafe = true;
             else {
-              const p1 = apply(trm, adv / (Math.hypot(tm[0], tm[1]) ? 1 : 1), 0);
+              const p1 = apply(trm, adv, 0);
               if (inside(p1, slack)) {
                 cuts.push([start, tok.e]);
                 removed++;
+                // remember the spacing the document used, so the replacement matches it
+                const k = rects.findIndex((r) => p0.x >= r.x - slack && p0.x <= r.x + r.w + slack && p0.y >= r.y - slack && p0.y <= r.y + r.h + slack);
+                if (k >= 0 && !styles[k]) styles[k] = { tc, th };
               } else unsafe = true;
             }
           }
@@ -396,7 +410,7 @@ export function removeTextInRects(doc: PDFDocument, page: PDFPage, rects: PdfRec
     }
     page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(next)));
   }
-  return { removed, unsafe };
+  return { removed, unsafe, styles };
 }
 
 // ---------------- moving graphics (Acrobat "Edit object") ----------------

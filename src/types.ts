@@ -69,6 +69,9 @@ export type TextAnnot = Base &
     origText?: string;
     /** width of the original run (page units): used to keep the document's own word spacing (justified lines) */
     origWidth?: number;
+    /** filled in while saving: the original run's character spacing and horizontal scale */
+    charSpacing?: number;
+    hScale?: number;
     /** index of the source pdf.js text item (for line reflow) */
     itemIndex?: number;
     /** neighbours pushed along the line when this edit grew; managed automatically */

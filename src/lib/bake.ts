@@ -16,6 +16,14 @@ import {
   PDFName,
   PDFString,
   PDFHexString,
+  pushGraphicsState,
+  popGraphicsState,
+  setCharacterSpacing,
+  setCharacterSqueeze,
+  setWordSpacing,
+  setTextRise,
+  setTextRenderingMode,
+  TextRenderingMode,
 } from 'pdf-lib';
 import type { PageViewport } from './pdf';
 import type { Annot, FormValues, MoveAnnot, TextAnnot } from '../types';
@@ -188,14 +196,29 @@ export async function bake(
     // Only if that can't be done safely do we fall back to covering them with white.
     const replaces = list.filter((a): a is TextAnnot => a.type === 'replace' && !!a.orig);
     if (replaces.length) {
-      let res = { removed: 0, unsafe: true };
+      let res: ReturnType<typeof removeTextInRects> = { removed: 0, unsafe: true, styles: [] };
       try {
         res = removeTextInRects(doc, page, replaces.map((a) => box(a.orig!.x, a.orig!.y, a.orig!.w, a.orig!.h)));
       } catch (e) {
         console.warn('text removal failed; covering instead', e);
       }
       const clean = res.removed > 0 && !res.unsafe;
-      for (const a of replaces) a.bg = clean ? null : a.bg || '#ffffff';
+      replaces.forEach((a, k) => {
+        a.bg = clean ? null : a.bg || '#ffffff';
+        const s = res.styles[k];
+        if (s) {
+          a.charSpacing = s.tc;
+          a.hScale = s.th;
+        }
+      });
+    }
+
+    // Isolate the page's own content (q … Q) so settings it leaves behind (letter spacing,
+    // scaling, render mode) can't leak into text we add: they made edits look thinner.
+    if (!(page as any).contentStreamRef) {
+      const start = doc.context.register(doc.context.contentStream([pushGraphicsState()]));
+      const end = doc.context.register(doc.context.contentStream([popGraphicsState()]));
+      page.node.wrapContentStreams(start, end);
     }
 
     // whiteouts & edit-text backgrounds go first so other markup draws above them
@@ -345,30 +368,43 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         const spin = a.type === 'text' ? a.rotation || 0 : 0;
         // Keep the document's own word spacing (justified paragraphs): measure how much wider the
         // original run was than its natural width, and give every word gap that same extra space.
+        // the original run's letter spacing / horizontal scale (0 and 100% for new text boxes)
+        const tc = a.type === 'replace' ? a.charSpacing ?? 0 : 0;
+        const hs = a.type === 'replace' ? a.hScale ?? 1 : 1;
+        const runW = (s: string) => (font.widthOfTextAtSize(s, a.fontSize) + [...s].length * tc) * hs;
+        // explicit text state, so nothing left over on the page can change how this looks
+        page.pushOperators(
+          pushGraphicsState(),
+          setCharacterSpacing(tc),
+          setWordSpacing(0),
+          setCharacterSqueeze(hs * 100),
+          setTextRise(0),
+          setTextRenderingMode(TextRenderingMode.Fill),
+        );
         let extra = 0;
         if (a.type === 'replace' && a.origText && a.origWidth) {
           const spaces = (a.origText.match(/ /g) || []).length;
           if (spaces) {
-            extra = (a.origWidth - font.widthOfTextAtSize(safe(a.origText), a.fontSize)) / spaces;
+            extra = (a.origWidth - runW(safe(a.origText))) / spaces;
             extra = Math.max(-a.fontSize * 0.15, Math.min(a.fontSize * 1.5, extra));
           }
         }
-        if (!extra) {
+        if (Math.abs(extra) < 0.01) {
           const o = turn(P(x0, baseline), P(a.x + a.w / 2, a.y + a.h / 2), spin);
           page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot - spin) });
-          return;
-        }
-        // word by word, advancing by the measured width plus the document's spacing
-        let cx = x0;
-        const spaceW = font.widthOfTextAtSize(' ', a.fontSize);
-        for (const word of line.split(' ')) {
-          if (word) {
-            const o = P(cx, baseline);
-            page.drawText(word, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot) });
-            cx += font.widthOfTextAtSize(word, a.fontSize);
+        } else {
+          // word by word, advancing by the measured width plus the document's spacing
+          let cx = x0;
+          for (const word of line.split(' ')) {
+            if (word) {
+              const o = P(cx, baseline);
+              page.drawText(word, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot) });
+              cx += runW(word);
+            }
+            cx += runW(' ') + extra;
           }
-          cx += spaceW + extra;
         }
+        page.pushOperators(popGraphicsState());
       });
       break;
     }
