@@ -128,3 +128,22 @@ export async function whiteToTransparent(dataUrl: string): Promise<string> {
   c.width = c.height = 0;
   return out;
 }
+
+/** True when the picture has something visible in it (not fully see-through). */
+export async function hasVisiblePixels(dataUrl: string): Promise<boolean> {
+  try {
+    const im = new Image();
+    im.src = dataUrl;
+    await im.decode();
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(im, 0, 0, 64, 64);
+    const d = ctx.getImageData(0, 0, 64, 64).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 24) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}

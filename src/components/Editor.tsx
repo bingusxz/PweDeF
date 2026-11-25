@@ -923,7 +923,11 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
         setTool('select');
         setPendingImage(null);
       } else if (typing) return;
-      else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+      else if ((e.key === 'Enter' || e.key === 'F2') && selectedId && ['text', 'replace', 'note'].includes(tabRef.current.annots.find((x) => x.id === selectedId)?.type || '')) {
+        // Enter on a selected text box starts editing it
+        e.preventDefault();
+        setEditing(selectedId);
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         api.removeAnnot(selectedId);
       } else if (e.key === 'Escape') {
         certPending.current = null;

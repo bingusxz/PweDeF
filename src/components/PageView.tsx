@@ -6,7 +6,7 @@ import type { Annot, Rect, TextAnnot } from '../types';
 import { annotBounds, isBoxAnnot, normRect, uid } from '../lib/util';
 import { Icon } from './Icon';
 import { FieldPreview } from './FieldPreview';
-import { listPictures, pictureAt, pictureImage, whiteToTransparent, type PagePicture } from '../lib/pagePictures';
+import { hasVisiblePixels, listPictures, pictureAt, pictureImage, whiteToTransparent, type PagePicture } from '../lib/pagePictures';
 import { kindInfo, newField } from '../lib/formFields';
 import { markStrokes } from '../lib/marks';
 
@@ -35,6 +35,10 @@ interface Widget {
   readOnly?: boolean;
   maxLen?: number;
 }
+
+// counts every pointer press in the window: a background lookup (which picture was clicked) gives up if another press happens first
+let downSeq = 0;
+if (typeof window !== 'undefined') window.addEventListener('pointerdown', () => void downSeq++, true);
 
 const DRAW_TOOLS = new Set(['ink', 'rect', 'ellipse', 'line', 'arrow', 'whiteout', 'redact', 'text', 'note', 'mark', 'place', 'hand', 'certsign', 'field', 'pickup']);const MARKUP_TOOLS = new Set(['highlight', 'underline', 'strike']);
 
@@ -411,15 +415,32 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
   };
   const pics = useRef<PagePicture[] | null>(null);
   const pickPictureHere = async (px: number, py: number) => {
+    const my = downSeq;
     if (!pics.current) pics.current = await listPictures(page!);
+    if (my !== downSeq) return;
     const hit = pictureAt(pics.current, px, py);
     // a picture covering most of the page is the page itself (a scan): leave it alone
     if (!hit || hit.w * hit.h > size.w * size.h * 0.7) return;
     const have = ed.annots.find((a) => a.type === 'move' && a.picture && a.page === index && Math.abs(a.from.x - hit.x) < 1 && Math.abs(a.from.y - hit.y) < 1);
     if (have) return ed.select(have.id);
     const img = await pictureImage(page!, hit.name);
+    if (my !== downSeq) return; // something else was clicked meanwhile: leave the selection alone
+    // what drags along with the frame: the picture's own pixels, or (if those are blank or unreadable) a snapshot of what is on screen
+    let snap = '';
+    if (img) {
+      const u = img.hasAlpha ? img.dataUrl : await whiteToTransparent(img.dataUrl);
+      if (await hasVisiblePixels(u)) snap = u;
+    }
+    if (!snap) {
+      try {
+        snap = captureArea({ x: hit.x, y: hit.y, w: hit.w, h: hit.h }).snapshot;
+      } catch {
+        snap = '';
+      }
+    }
+    if (my !== downSeq) return;
     const id = uid();
-    ed.addAnnot({ id, page: index, type: 'move', from: { x: hit.x, y: hit.y, w: hit.w, h: hit.h }, dx: 0, dy: 0, snapshot: img ? (img.hasAlpha ? img.dataUrl : await whiteToTransparent(img.dataUrl)) : '', texts: [], picture: true });
+    ed.addAnnot({ id, page: index, type: 'move', from: { x: hit.x, y: hit.y, w: hit.w, h: hit.h }, dx: 0, dy: 0, snapshot: snap, texts: [], picture: true });
     ed.select(id);
   };
   const onWrapPointerUp = (e: React.PointerEvent) => {
@@ -836,6 +857,7 @@ function startMove(e: React.PointerEvent, a: Annot, ed: ReturnType<typeof useEdi
   if (e.button !== 0) return;
   e.stopPropagation();
   e.preventDefault();
+  const wasSelected = ed.selectedId === a.id; // clicking an already selected text box (without dragging) starts editing it
   ed.select(a.id);
   const sx = e.clientX, sy = e.clientY;
   let moved = false;
@@ -852,6 +874,7 @@ function startMove(e: React.PointerEvent, a: Annot, ed: ReturnType<typeof useEdi
   const up = () => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
+    if (!moved && wasSelected && (a.type === 'text' || a.type === 'replace' || a.type === 'note')) ed.edit(a.id);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
