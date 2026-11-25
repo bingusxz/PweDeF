@@ -1,0 +1,254 @@
+import { useEffect, useRef, useState } from 'react';
+import { Modal } from './Modal';
+import { Icon } from './Icon';
+import { SIGNATURE_FONTS, STAMPS, imageSize, loadSigs, saveSigs, stampImage, trimCanvas, typedSignature, type SavedSig } from '../lib/stamps';
+import { uid } from '../lib/util';
+import type { PendingImage } from './EditorContext';
+import { IMAGE_FILTERS } from '../lib/convert';
+
+type TabKey = 'saved' | 'draw' | 'type' | 'upload' | 'stamp';
+
+export function SignatureDialog({
+  initialTab,
+  onPick,
+  onClose,
+}: {
+  initialTab?: TabKey;
+  onPick: (img: PendingImage) => void;
+  onClose: () => void;
+}) {
+  const [sigs, setSigs] = useState<SavedSig[]>(loadSigs);
+  const [tab, setTab] = useState<TabKey>(initialTab || (loadSigs().length ? 'saved' : 'draw'));
+  const [color, setColor] = useState('#0b1f66');
+  const [kind, setKind] = useState<'signature' | 'initials'>('signature');
+  const [typed, setTyped] = useState('');
+  const [font, setFont] = useState(SIGNATURE_FONTS[0]);
+  const [remember, setRemember] = useState(true);
+  const [stampSub, setStampSub] = useState(true);
+  const [userName, setUserName] = useState(() => localStorage.getItem('acro.user') || '');
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const drawn = useRef(false);
+
+  const finish = async (dataUrl: string, label: string, store: boolean) => {
+    if (store && remember) {
+      const next = [{ id: uid(), dataUrl, kind }, ...sigs];
+      saveSigs(next);
+      setSigs(next);
+    }
+    const { w, h } = await imageSize(dataUrl);
+    const targetW = label === 'stamp' ? w / 3 : kind === 'initials' ? 70 : 160;
+    onPick({ dataUrl, w: targetW, h: (h / w) * targetW, label });
+  };
+
+  // drawing pad
+  useEffect(() => {
+    if (tab !== 'draw') return;
+    const c = canvas.current!;
+    const ctx = c.getContext('2d')!;
+    ctx.clearRect(0, 0, c.width, c.height);
+    drawn.current = false;
+    let drawing = false;
+    let last: [number, number] = [0, 0];
+    const pos = (e: PointerEvent): [number, number] => {
+      const r = c.getBoundingClientRect();
+      return [((e.clientX - r.left) * c.width) / r.width, ((e.clientY - r.top) * c.height) / r.height];
+    };
+    const down = (e: PointerEvent) => {
+      drawing = true;
+      last = pos(e);
+      c.setPointerCapture(e.pointerId);
+    };
+    const move = (e: PointerEvent) => {
+      if (!drawing) return;
+      const p = pos(e);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2 + (e.pressure || 0.5) * 4;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(...last);
+      ctx.lineTo(...p);
+      ctx.stroke();
+      last = p;
+      drawn.current = true;
+    };
+    const up = () => (drawing = false);
+    c.addEventListener('pointerdown', down);
+    c.addEventListener('pointermove', move);
+    c.addEventListener('pointerup', up);
+    return () => {
+      c.removeEventListener('pointerdown', down);
+      c.removeEventListener('pointermove', move);
+      c.removeEventListener('pointerup', up);
+    };
+  }, [tab, color]);
+
+  const upload = async () => {
+    const [f] = await window.acro.openPdfs({ multi: false, title: 'Choose image', filters: IMAGE_FILTERS });
+    if (!f) return;
+    const blob = new Blob([f.data as BlobPart]);
+    const bmp = await createImageBitmap(blob);
+    const c = document.createElement('canvas');
+    c.width = bmp.width;
+    c.height = bmp.height;
+    c.getContext('2d')!.drawImage(bmp, 0, 0);
+    await finish(c.toDataURL('image/png'), kind, true);
+  };
+
+  const tabs: [TabKey, string][] = [
+    ['saved', 'Saved'],
+    ['draw', 'Draw'],
+    ['type', 'Type'],
+    ['upload', 'Image'],
+    ['stamp', 'Stamps'],
+  ];
+
+  return (
+    <Modal title="Sign & stamp" onClose={onClose} width={640}>
+      <div className="seg">
+        {tabs.map(([k, l]) => (
+          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {(tab === 'draw' || tab === 'type' || tab === 'upload') && (
+        <div className="row gap">
+          <div className="seg small">
+            <button className={kind === 'signature' ? 'on' : ''} onClick={() => setKind('signature')}>
+              Signature
+            </button>
+            <button className={kind === 'initials' ? 'on' : ''} onClick={() => setKind('initials')}>
+              Initials
+            </button>
+          </div>
+          {tab !== 'upload' && (
+            <div className="swatches">
+              {['#0b1f66', '#000000', '#1d5fbf', '#c62828'].map((c) => (
+                <button key={c} className={`swatch ${color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setColor(c)} aria-label={c} />
+              ))}
+            </div>
+          )}
+          <label className="check">
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Save for next time
+          </label>
+        </div>
+      )}
+
+      {tab === 'saved' &&
+        (sigs.length ? (
+          <div className="sig-grid">
+            {sigs.map((s) => (
+              <div key={s.id} className="sig-item">
+                <button onClick={() => onPick && imageSize(s.dataUrl).then(({ w, h }) => {
+                  const tw = s.kind === 'initials' ? 70 : 160;
+                  onPick({ dataUrl: s.dataUrl, w: tw, h: (h / w) * tw, label: s.kind });
+                })}>
+                  <img src={s.dataUrl} alt={s.kind} />
+                </button>
+                <button
+                  className="icon-btn danger tiny"
+                  title="Delete"
+                  onClick={() => {
+                    const next = sigs.filter((x) => x.id !== s.id);
+                    saveSigs(next);
+                    setSigs(next);
+                  }}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">No saved signatures yet. Create one with Draw, Type or Image.</p>
+        ))}
+
+      {tab === 'draw' && (
+        <>
+          <canvas ref={canvas} className="sig-pad" width={1200} height={360} />
+          <div className="row end gap">
+            <button
+              onClick={() => {
+                const c = canvas.current!;
+                c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
+                drawn.current = false;
+              }}
+            >
+              Clear
+            </button>
+            <button className="primary" onClick={() => drawn.current && finish(trimCanvas(canvas.current!).toDataURL('image/png'), kind, true)}>
+              Use signature
+            </button>
+          </div>
+        </>
+      )}
+
+      {tab === 'type' && (
+        <>
+          <input className="big-input" placeholder={kind === 'initials' ? 'Your initials' : 'Your full name'} value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+          <div className="font-pick">
+            {SIGNATURE_FONTS.map((f) => (
+              <button key={f} className={font === f ? 'on' : ''} style={{ fontFamily: `"${f}", cursive`, color }} onClick={() => setFont(f)}>
+                {typed || 'Signature'}
+              </button>
+            ))}
+          </div>
+          <div className="row end">
+            <button className="primary" disabled={!typed.trim()} onClick={() => finish(typedSignature(typed.trim(), font, color), kind, true)}>
+              Use signature
+            </button>
+          </div>
+        </>
+      )}
+
+      {tab === 'upload' && (
+        <div className="center-box">
+          <p className="muted">Use a scanned signature, a company seal, or any picture. PNGs with transparency look best.</p>
+          <button className="primary" onClick={upload}>
+            <Icon name="image" /> Choose image…
+          </button>
+        </div>
+      )}
+
+      {tab === 'stamp' && (
+        <>
+          <div className="row gap">
+            <label className="check">
+              <input type="checkbox" checked={stampSub} onChange={(e) => setStampSub(e.target.checked)} /> Add name & date
+            </label>
+            {stampSub && (
+              <input
+                placeholder="Your name"
+                value={userName}
+                onChange={(e) => {
+                  setUserName(e.target.value);
+                  localStorage.setItem('acro.user', e.target.value);
+                }}
+              />
+            )}
+          </div>
+          <div className="stamp-grid">
+            {STAMPS.map((s) => {
+              const sub = stampSub ? `${userName ? userName + ' · ' : ''}${new Date().toLocaleString()}` : undefined;
+              return (
+                <button
+                  key={s.label}
+                  className="stamp-btn"
+                  style={{ color: s.color, borderColor: s.color }}
+                  onClick={() => {
+                    const st = stampImage(s.label, s.color, sub);
+                    onPick({ dataUrl: st.dataUrl, w: st.w, h: st.h, label: 'stamp' });
+                  }}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}

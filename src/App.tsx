@@ -1,0 +1,448 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { DocTab } from './types';
+import type { OpenedFile } from './global';
+import { Editor } from './components/Editor';
+import { BatchDialog } from './components/BatchDialog';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToolHub, type HubAction } from './components/ToolHub';
+import { Modal } from './components/Modal';
+import { Icon } from './components/Icon';
+import { onToast, toast, errText, type ToastMsg } from './lib/toast';
+import { uid } from './lib/util';
+import { merge } from './lib/ops';
+import { IMAGE_FILTERS, imagesFilesToPdf } from './lib/convert';
+
+interface Recent {
+  path: string;
+  name: string;
+  at: number;
+}
+const RKEY = 'acro.recent.v1';
+const loadRecent = (): Recent[] => {
+  try {
+    return JSON.parse(localStorage.getItem(RKEY) || '[]');
+  } catch {
+    return [];
+  }
+};
+
+function newTab(bytes: Uint8Array, name: string, path: string | null): DocTab {
+  return { id: uid(), name, path, bytes, annots: [], form: {}, past: [], future: [], dirty: !path, rev: 0 };
+}
+
+export default function App() {
+  const [tabs, setTabs] = useState<DocTab[]>([]);
+  const [active, setActive] = useState<string | null>(null);
+  const [batch, setBatch] = useState(false);
+  const [toasts, setToasts] = useState<ToastMsg[]>([]);
+  const [recent, setRecent] = useState<Recent[]>(loadRecent);
+  const [update, setUpdate] = useState<{ version: string; ready: boolean } | null>(null);
+  const [version, setVersion] = useState('');
+  const [dragging, setDragging] = useState(false);
+  const saveFns = useRef(new Map<string, (as?: boolean) => Promise<boolean>>());
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+
+  const remember = (f: { path: string; name: string }) => {
+    const next = [{ path: f.path, name: f.name, at: Date.now() }, ...loadRecent().filter((r) => r.path !== f.path)].slice(0, 12);
+    try {
+      localStorage.setItem(RKEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+    setRecent(next);
+  };
+
+  const openFiles = useCallback((files: OpenedFile[]) => {
+    if (!files.length) return;
+    let lastId = '';
+    const next = [...tabsRef.current];
+    for (const f of files) {
+      const existing = next.find((t) => t.path && t.path === f.path);
+      if (existing) {
+        lastId = existing.id;
+        continue;
+      }
+      const real = f.path && !f.path.startsWith('dropped:') ? f.path : null;
+      const t = newTab(f.data, f.name, real);
+      next.push(t);
+      lastId = t.id;
+    }
+    tabsRef.current = next;
+    setTabs(next);
+    setActive(lastId);
+    files.filter((f) => f.path && !f.path.startsWith('dropped:')).forEach(remember);
+  }, []);
+
+  const openNew = useCallback((bytes: Uint8Array, name: string) => {
+    const t = newTab(bytes, name, null);
+    setTabs((cur) => [...cur, t]);
+    setActive(t.id);
+  }, []);
+
+  const openDialog = async () => openFiles(await window.acro.openPdfs());
+
+  const combineFiles = async () => {
+    const files = await window.acro.openPdfs({ title: 'Choose PDFs to combine (in order)' });
+    if (!files.length) return;
+    try {
+      openNew(await merge(files.map((f) => f.data)), 'Combined.pdf');
+    } catch (e) {
+      toast(errText(e), 'error');
+    }
+  };
+
+  const imagesToPdf = async () => {
+    const files = await window.acro.openPdfs({ title: 'Choose images', filters: IMAGE_FILTERS });
+    if (!files.length) return;
+    try {
+      openNew(await imagesFilesToPdf(files), 'Images.pdf');
+    } catch (e) {
+      toast(errText(e), 'error');
+    }
+  };
+
+  const [caps, setCaps] = useState<{ office: boolean; libreoffice: boolean } | null>(null);
+  const [urlDialog, setUrlDialog] = useState(false);
+  const [working, setWorking] = useState<string | null>(null);
+  useEffect(() => {
+    window.acro.convertCaps().then(setCaps).catch(() => {});
+  }, []);
+
+  const withWorking = async (msg: string, fn: () => Promise<void>) => {
+    setWorking(msg);
+    try {
+      await fn();
+    } catch (e) {
+      toast(errText(e), 'error');
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  const hubAction = async (a: HubAction) => {
+    switch (a) {
+      case 'open':
+        return openDialog();
+      case 'merge':
+        return combineFiles();
+      case 'batch':
+        return setBatch(true);
+      case 'imgToPdf':
+        return imagesToPdf();
+      case 'wordToPdf':
+      case 'excelToPdf':
+      case 'pptToPdf': {
+        const kind = a === 'wordToPdf' ? 'word' : a === 'excelToPdf' ? 'excel' : 'ppt';
+        return withWorking('Converting with ' + (caps?.office ? 'Microsoft Office' : 'LibreOffice') + '…', async () => {
+          const res = await window.acro.officeToPdf(kind);
+          for (const r of res) {
+            if (r.data) openNew(r.data, r.name);
+            else toast(`${r.name}: ${r.error}`, 'error');
+          }
+        });
+      }
+      case 'webToPdf':
+        return setUrlDialog(true);
+      case 'htmlToPdf': {
+        const [f] = await window.acro.openPdfs({
+          multi: false,
+          title: 'Choose an HTML, text or Markdown file',
+          filters: [{ name: 'HTML / Text', extensions: ['html', 'htm', 'txt', 'md', 'markdown', 'log', 'csv'] }],
+        });
+        if (!f) return;
+        return withWorking('Converting…', async () => {
+          const name = f.name.replace(/\.[^.]+$/, '') + '.pdf';
+          if (/\.html?$/i.test(f.name)) {
+            const html = new TextDecoder().decode(f.data);
+            const r = await window.acro.htmlToPdf(html, name);
+            openNew(r.data, name);
+          } else {
+            const { textToPdf } = await import('./lib/exporters');
+            const r = await textToPdf(new TextDecoder().decode(f.data), name);
+            openNew(r.data, name);
+          }
+        });
+      }
+      default: {
+        // tools that run on a PDF: pick one, open it, then launch the tool
+        const files = await window.acro.openPdfs({ multi: false, title: 'Choose a PDF' });
+        if (!files.length) return;
+        openFiles(files);
+        const id = tabsRef.current.find((t) => t.path === files[0].path)?.id;
+        if (id) setTabs((cur) => cur.map((t) => (t.id === id ? { ...t, startAction: a } : t)));
+      }
+    }
+  };
+
+  const closeTab = async (id: string) => {
+    const t = tabsRef.current.find((x) => x.id === id);
+    if (!t) return;
+    if (t.dirty && (t.annots.length || Object.keys(t.form).length || t.past.length)) {
+      const choice = window.confirm(`"${t.name}" has unsaved changes.\n\nOK = save first, Cancel = discard changes`);
+      if (choice) {
+        const ok = await saveFns.current.get(id)?.(false);
+        if (!ok) return;
+      }
+    }
+    setTabs((cur) => {
+      const idx = cur.findIndex((x) => x.id === id);
+      const next = cur.filter((x) => x.id !== id);
+      if (active === id) setActive(next[Math.max(0, idx - 1)]?.id ?? null);
+      return next;
+    });
+    saveFns.current.delete(id);
+  };
+
+  // ---------- global events ----------
+  useEffect(() => {
+    const offs = [
+      window.acro.onOpenFiles(openFiles),
+      window.acro.onBeforeClose(() => {
+        const dirty = tabsRef.current.filter((t) => t.dirty && (t.annots.length || Object.keys(t.form).length || t.past.length));
+        if (!dirty.length || window.confirm(`You have unsaved changes in ${dirty.length} document(s). Quit anyway?`)) window.acro.confirmClose();
+      }),
+      window.acro.onUpdateAvailable((v) => setUpdate({ version: v, ready: false })),
+      window.acro.onUpdateReady((v) => setUpdate({ version: v, ready: true })),
+      onToast((t) => {
+        setToasts((cur) => [...cur, t]);
+        setTimeout(() => setToasts((cur) => cur.filter((x) => x.id !== t.id)), t.kind === 'error' ? 7000 : 3500);
+      }),
+    ];
+    window.acro.version().then(setVersion);
+    window.acro.ready().then(openFiles);
+    return () => offs.forEach((o) => o());
+  }, [openFiles]);
+
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        openDialog();
+      } else if (mod && e.key.toLowerCase() === 'w' && active) {
+        e.preventDefault();
+        closeTab(active);
+      } else if (mod && e.key === 'Tab' && tabs.length > 1) {
+        e.preventDefault();
+        const i = tabs.findIndex((t) => t.id === active);
+        setActive(tabs[(i + (e.shiftKey ? -1 : 1) + tabs.length) % tabs.length].id);
+      }
+    };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  });
+
+  // drag & drop files from Explorer
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const files = [...e.dataTransfer.files];
+    const pdfs = files.filter((f) => /\.pdf$/i.test(f.name));
+    const imgs = files.filter((f) => /\.(png|jpe?g|webp|bmp|gif)$/i.test(f.name));
+    if (pdfs.length)
+      openFiles(
+        await Promise.all(
+          pdfs.map(async (f) => ({
+            path: window.acro.pathForFile(f) || `dropped:${f.name}:${Date.now()}`,
+            name: f.name,
+            data: new Uint8Array(await f.arrayBuffer()),
+          })),
+        ),
+      );
+    if (imgs.length) openNew(await imagesFilesToPdf(await Promise.all(imgs.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) })))), 'Images.pdf');
+  };
+
+  const updateTab = useCallback((id: string) => (fn: (t: DocTab) => DocTab) => setTabs((cur) => cur.map((t) => (t.id === id ? fn(t) : t))), []);
+  const activeTab = tabs.find((t) => t.id === active) || null;
+
+  return (
+    <div
+      className="app"
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)}
+      onDrop={onDrop}
+    >
+      <header className="titlebar">
+        <button className={`brand ${!activeTab ? 'on' : ''}`} onClick={() => setActive(null)} title="Home">
+          <span className="logo">A</span> Acrobatics
+        </button>
+        <div className="tabs">
+          {tabs.map((t) => (
+            <div key={t.id} className={`tab ${t.id === active ? 'on' : ''}`} onClick={() => setActive(t.id)} title={t.path || t.name}>
+              <span className="tab-name">
+                {t.dirty && <span className="dot" />}
+                {t.name}
+              </span>
+              <button
+                className="tab-x"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeTab(t.id);
+                }}
+                aria-label="Close tab"
+              >
+                <Icon name="close" size={12} />
+              </button>
+            </div>
+          ))}
+          <button className="icon-btn" onClick={openDialog} title="Open (Ctrl+O)">
+            <Icon name="add" />
+          </button>
+        </div>
+        {update && (
+          <button className={`update-pill ${update.ready ? 'ready' : ''}`} onClick={() => update.ready && window.acro.installUpdate()}>
+            {update.ready ? `Restart to update to v${update.version}` : `Downloading v${update.version}…`}
+          </button>
+        )}
+      </header>
+
+      <main className="main">
+        {tabs.map((t) => (
+          <div key={t.id} className="tab-pane" style={{ display: t.id === active ? 'flex' : 'none' }}>
+            <ErrorBoundary label={t.name}>
+              <Editor
+                tab={t}
+                onUpdate={updateTab(t.id)}
+                openNew={openNew}
+                registerSave={(fn) => {
+                  saveFns.current.set(t.id, fn);
+                }}
+              />
+            </ErrorBoundary>
+          </div>
+        ))}
+        {!activeTab && (
+          <Home
+            recent={recent}
+            version={version}
+            caps={caps}
+            onAction={hubAction}
+            onRecent={async (r) => {
+              try {
+                openFiles([await window.acro.readPdf(r.path)]);
+              } catch {
+                toast(`Can't open ${r.name} — it may have been moved or deleted.`, 'error');
+                const next = recent.filter((x) => x.path !== r.path);
+                localStorage.setItem(RKEY, JSON.stringify(next));
+                setRecent(next);
+              }
+            }}
+          />
+        )}
+      </main>
+
+      {dragging && (
+        <div className="drop-overlay">
+          <Icon name="download" size={40} />
+          Drop PDFs to open · drop images to convert
+        </div>
+      )}
+      {batch && <BatchDialog onClose={() => setBatch(false)} />}
+      {urlDialog && (
+        <UrlDialog
+          onClose={() => setUrlDialog(false)}
+          onRun={(url, landscape) => {
+            setUrlDialog(false);
+            withWorking('Loading page & creating PDF…', async () => {
+              const r = await window.acro.webToPdf(url, landscape);
+              openNew(r.data, r.name);
+            });
+          }}
+        />
+      )}
+      {working && (
+        <div className="busy">
+          <div className="busy-card">
+            <div className="spinner" />
+            <div>{working}</div>
+          </div>
+        </div>
+      )}
+      <div className="toasts" role="status">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.kind}`}>
+            {t.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function UrlDialog({ onClose, onRun }: { onClose: () => void; onRun: (url: string, landscape: boolean) => void }) {
+  const [url, setUrl] = useState('https://');
+  const [landscape, setLandscape] = useState(false);
+  return (
+    <Modal
+      title="Web page to PDF"
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={url.length < 10} onClick={() => onRun(url, landscape)}>
+            Convert
+          </button>
+        </>
+      }
+    >
+      <input className="big-input" value={url} autoFocus onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onRun(url, landscape)} />
+      <label className="check">
+        <input type="checkbox" checked={landscape} onChange={(e) => setLandscape(e.target.checked)} /> Landscape
+      </label>
+    </Modal>
+  );
+}
+
+function Home({
+  recent,
+  version,
+  caps,
+  onAction,
+  onRecent,
+}: {
+  recent: Recent[];
+  version: string;
+  caps: { office: boolean; libreoffice: boolean } | null;
+  onAction: (a: HubAction) => void;
+  onRecent: (r: Recent) => void;
+}) {
+  return (
+    <div className="home">
+      <div className="home-inner">
+        <div className="home-hero">
+          <div>
+            <h1>
+              Acrobatics <span className="muted">all-in-one PDF studio</span>
+            </h1>
+            <p className="muted">Edit, sign, convert, organize — free and in-house. Drag files anywhere to start.</p>
+          </div>
+          <button className="primary big" onClick={() => onAction('open')}>
+            <Icon name="open" size={20} /> Open PDF
+          </button>
+        </div>
+        <ToolHub onAction={onAction} caps={caps} />
+        <h3>Recent</h3>
+        {recent.length ? (
+          <div className="recent">
+            {recent.map((r) => (
+              <button key={r.path} className="recent-row" onClick={() => onRecent(r)}>
+                <Icon name="file" size={16} />
+                <span className="grow">{r.name}</span>
+                <span className="muted small-text">{r.path}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">Files you open will appear here.</p>
+        )}
+        <p className="muted small-text version">Acrobatics v{version}</p>
+      </div>
+    </div>
+  );
+}
