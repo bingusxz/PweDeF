@@ -75,7 +75,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   const [zoom, setZoom] = useState(1);
   const [tool, setTool] = useState<Tool>('select');
   const [style, setStyle] = useState<StyleState>({
-    color: '#c62828',
+    color: '#111111',
     width: 2,
     fontSize: 12,
     fill: null,

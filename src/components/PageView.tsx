@@ -147,7 +147,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
 
     if (tool === 'text') {
       const a: TextAnnot = {
-        id, page: index, type: 'text', x: x0, y: y0 - style.fontSize * 0.7, w: 220,
+        id, page: index, type: 'text', x: x0, y: y0 - style.fontSize * 0.7, w: 110,
         h: style.fontSize * 1.2 + 4, text: '', fontSize: style.fontSize, color: style.color,
         family: style.family, bold: style.bold, italic: style.italic,
       };
