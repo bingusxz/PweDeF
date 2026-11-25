@@ -39,4 +39,5 @@ contextBridge.exposeInMainWorld('acro', {
   onBeforeClose: (cb) => on('app:before-close', cb),
   onUpdateAvailable: (cb) => on('update:available', cb),
   onUpdateReady: (cb) => on('update:ready', cb),
+  onUpdateProgress: (cb) => on('update:progress', cb),
 });

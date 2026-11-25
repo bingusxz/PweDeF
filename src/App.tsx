@@ -37,7 +37,7 @@ export default function App() {
   const [batch, setBatch] = useState(false);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [recent, setRecent] = useState<Recent[]>(loadRecent);
-  const [update, setUpdate] = useState<{ version: string; ready: boolean } | null>(null);
+  const [update, setUpdate] = useState<{ version: string; ready: boolean; percent?: number } | null>(null);
   const [version, setVersion] = useState('');
   const [dragging, setDragging] = useState(false);
   const saveFns = useRef(new Map<string, (as?: boolean) => Promise<boolean>>());
@@ -204,7 +204,8 @@ export default function App() {
         if (!dirty.length || window.confirm(`You have unsaved changes in ${dirty.length} document(s). Quit anyway?`)) window.acro.confirmClose();
       }),
       window.acro.onUpdateAvailable((v) => setUpdate({ version: v, ready: false })),
-      window.acro.onUpdateReady((v) => setUpdate({ version: v, ready: true })),
+      window.acro.onUpdateReady((v) => setUpdate({ version: v, ready: true, percent: 100 })),
+      window.acro.onUpdateProgress((p) => setUpdate((u) => (u && !u.ready ? { ...u, percent: p } : u))),
       onToast((t) => {
         setToasts((cur) => [...cur, t]);
         setTimeout(() => setToasts((cur) => cur.filter((x) => x.id !== t.id)), t.kind === 'error' ? 7000 : 3500);
@@ -297,8 +298,20 @@ export default function App() {
           </button>
         </div>
         {update && (
-          <button className={`update-pill ${update.ready ? 'ready' : ''}`} onClick={() => update.ready && window.acro.installUpdate()}>
-            {update.ready ? `Restart to update to v${update.version}` : `Downloading v${update.version}…`}
+          <button
+            className={`update-pill ${update.ready ? 'ready' : ''}`}
+            onClick={() => update.ready && window.acro.installUpdate()}
+            title={update.ready ? 'Restart PweDeF to finish updating' : 'Downloading the update in the background'}
+          >
+            <span className="update-label">
+              {update.ready ? `Restart to update to v${update.version}` : `Downloading v${update.version}`}
+              {!update.ready && <span className="update-pct">{update.percent ?? 0}%</span>}
+            </span>
+            {!update.ready && (
+              <span className="update-bar">
+                <span className="update-fill" style={{ width: `${update.percent ?? 0}%` }} />
+              </span>
+            )}
           </button>
         )}
       </header>

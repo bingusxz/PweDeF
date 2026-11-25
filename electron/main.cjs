@@ -321,6 +321,7 @@ function setupAutoUpdate() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-available', (info) => win && win.webContents.send('update:available', info.version));
+  autoUpdater.on('download-progress', (p) => win && win.webContents.send('update:progress', Math.round(p.percent)));
   autoUpdater.on('update-downloaded', (info) => win && win.webContents.send('update:ready', info.version));
   autoUpdater.on('error', (err) => console.error('updater', err));
   autoUpdater.checkForUpdates().catch(() => {});

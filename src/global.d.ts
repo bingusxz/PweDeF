@@ -37,6 +37,7 @@ declare global {
       onBeforeClose(cb: () => void): () => void;
       onUpdateAvailable(cb: (version: string) => void): () => void;
       onUpdateReady(cb: (version: string) => void): () => void;
+      onUpdateProgress(cb: (percent: number) => void): () => void;
     };
   }
 }
