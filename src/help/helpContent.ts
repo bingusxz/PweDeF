@@ -20,7 +20,7 @@ export const HELP: HelpTopic[] = [
       'Press Ctrl+S to save, or use Save As to keep the original untouched.',
       'Come back to the home screen any time by clicking the PweDeF logo. All the tools are listed there.',
     ],
-    tips: ['Starting from the home screen: the "Start here" cards cover the most common jobs.', 'The Filing log on the right reopens recent files in one click.'],
+    tips: ['To open PDFs with PweDeF by default, see Help, About PweDeF.', 'Starting from the home screen: the "Start here" cards cover the most common jobs.', 'The Filing log on the right reopens recent files in one click.'],
   },
   {
     id: 'edit-text',

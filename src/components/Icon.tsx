@@ -1,4 +1,4 @@
-// Icon set: Lucide (ISC license) — consistent, crisp, recognizable.
+// Icon set: Lucide (ISC license): consistent, crisp, recognizable.
 import {
   FolderOpen, Save, MousePointer2, Hand, TextCursorInput, Type, Eraser, Highlighter, Underline, Strikethrough,
   PenLine, Square, Circle, Minus, MoveUpRight, SquareSlash, MessageSquareText, Signature, Stamp, Image, Undo2,

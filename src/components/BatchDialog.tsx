@@ -141,7 +141,7 @@ export function BatchDialog({ onClose }: { onClose: () => void }) {
                 </div>
               );
             })}
-            {!files.length && <p className="muted">Add the PDFs you want to process — e.g. a month of invoices.</p>}
+            {!files.length && <p className="muted">Add the PDFs you want to process, for example a month of invoices.</p>}
           </div>
         </section>
         <section>

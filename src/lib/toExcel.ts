@@ -87,7 +87,7 @@ export async function pdfToXlsx(pdf: PDFDocumentProxy, pdfjs: PdfJsLib, onProgre
     }
     row = textRows(ws, bodySorted.slice(used), row);
 
-    ws.columns.forEach((col) => {
+    (ws.columns || []).forEach((col) => {
       let max = 8;
       col.eachCell?.({ includeEmpty: false }, (cell) => {
         const longest = String(cell.value instanceof Date ? 'yyyy-mm-dd' : cell.value ?? '').split('\n').reduce((n, l) => Math.max(n, l.length), 0);

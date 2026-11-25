@@ -480,6 +480,26 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
 }
 
 {
+  // ---- Excel export of pages with no text (used to crash with "reading 'forEach'") ----
+  const { pdfToXlsx: toXlsx } = await import('../src/lib/toExcel');
+  const mixed = await PDFDocument.create();
+  mixed.addPage([612, 792]); // blank page
+  const withText = mixed.addPage([612, 792]);
+  withText.drawText('Hello Excel', { x: 72, y: 700, size: 12, font: await mixed.embedFont(StandardFonts.Helvetica) });
+  mixed.addPage([612, 792]); // blank again
+  const md2 = await pdfjs.getDocument({ data: new Uint8Array(await mixed.save()), isEvalSupported: false }).promise;
+  let xlErr = '';
+  let xlBytes: Uint8Array | null = null;
+  try {
+    xlBytes = await toXlsx(md2 as any, pdfjs as any, () => {});
+  } catch (e: any) {
+    xlErr = String(e?.message || e);
+  }
+  check(!xlErr && !!xlBytes && xlBytes.length > 500, `excel: blank pages no longer break the export ${xlErr}`);
+  await md2.destroy();
+}
+
+{
   // ---- text alignment and wrapping ----
   const blankA = await PDFDocument.create();
   blankA.addPage([612, 792]);

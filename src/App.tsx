@@ -48,6 +48,7 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [recent, setRecent] = useState<Recent[]>(loadRecent);
   const [update, setUpdate] = useState<{ version: string; ready: boolean; percent?: number } | null>(null);
+  const [updHidden, setUpdHidden] = useState(false);
   const [version, setVersion] = useState('');
   const [dragging, setDragging] = useState(false);
   const saveFns = useRef(new Map<string, (as?: boolean) => Promise<boolean>>());
@@ -209,7 +210,10 @@ export default function App() {
         if (!dirty.length || window.confirm(`You have unsaved changes in ${dirty.length} document(s). Quit anyway?`)) window.acro.confirmClose();
       }),
       window.acro.onUpdateAvailable((v) => setUpdate({ version: v, ready: false })),
-      window.acro.onUpdateReady((v) => setUpdate({ version: v, ready: true, percent: 100 })),
+      window.acro.onUpdateReady((v) => {
+        setUpdHidden(false);
+        setUpdate({ version: v, ready: true, percent: 100 });
+      }),
       window.acro.onUpdateProgress((p) => setUpdate((u) => (u && !u.ready ? { ...u, percent: p } : u))),
       onToast((t) => {
         setToasts((cur) => [...cur, t]);
@@ -325,23 +329,6 @@ export default function App() {
             <Icon name="help" />
           </button>
         </div>
-        {update && (
-          <button
-            className={`update-pill ${update.ready ? 'ready' : ''}`}
-            onClick={() => update.ready && window.acro.installUpdate()}
-            title={update.ready ? 'Restart PweDeF to finish updating' : 'Downloading the update in the background'}
-          >
-            <span className="update-label">
-              {update.ready ? `Restart to update to v${update.version}` : `Downloading v${update.version}`}
-              {!update.ready && <span className="update-pct">{update.percent ?? 0}%</span>}
-            </span>
-            {!update.ready && (
-              <span className="update-bar">
-                <span className="update-fill" style={{ width: `${update.percent ?? 0}%` }} />
-              </span>
-            )}
-          </button>
-        )}
       </header>
 
       <main className="main">
@@ -369,7 +356,7 @@ export default function App() {
               try {
                 openFiles([await window.acro.readPdf(r.path)]);
               } catch {
-                toast(`Can't open ${r.name} — it may have been moved or deleted.`, 'error');
+                toast(`Can't open ${r.name}. It may have been moved or deleted.`, 'error');
                 const next = recent.filter((x) => x.path !== r.path);
                 localStorage.setItem(RKEY, JSON.stringify(next));
                 setRecent(next);
@@ -386,6 +373,25 @@ export default function App() {
         </div>
       )}
       {batch && <BatchDialog onClose={() => setBatch(false)} />}
+      {update && !updHidden && (
+        <div className={'update-float' + (update.ready ? ' ready' : '')} role="status" aria-live="polite">
+          <b>{update.ready ? 'Update ready' : 'Updating PweDeF'}</b>
+          <span>{update.ready ? 'Version ' + update.version + ' is downloaded. Restart to finish.' : 'Downloading version ' + update.version + '… ' + (update.percent ?? 0) + '%'}</span>
+          {!update.ready && (
+            <span className="update-bar">
+              <span className="update-fill" style={{ width: (update.percent ?? 0) + '%' }} />
+            </span>
+          )}
+          {update.ready && (
+            <span className="update-float-actions">
+              <button onClick={() => setUpdHidden(true)}>Later</button>
+              <button className="primary" onClick={() => window.acro.installUpdate()}>
+                Restart now
+              </button>
+            </span>
+          )}
+        </div>
+      )}
       {compareOpen && <CompareDialog onClose={() => setCompareOpen(false)} />}
       {helpOpen && (
         <HelpDialog
@@ -496,7 +502,7 @@ function Home({
           </div>
           <div className="home-actions">
             <span className="serial" title="Installed version. It updates itself.">
-              Version <b>{version || '—'}</b>
+              Version <b>{version || '-'}</b>
             </span>
             <button className="primary big" onClick={() => onAction('open')}>
               <Icon name="open" size={18} /> Open PDF
@@ -524,11 +530,18 @@ function Home({
             ) : (
               <p className="empty-line">PDFs you open are logged here so you can reopen them in one click.</p>
             )}
+            <p className="note-line">
+              Tip: make PweDeF your default PDF app.{' '}
+              <button className="link-btn" onClick={() => window.acro.openDefaultApps()}>
+                Show me how
+              </button>
+            </p>
             <button
               className="link-btn update-check"
               onClick={async () => {
                 const r = await window.acro.checkUpdates();
-                toast(r.message, r.status === 'error' ? 'error' : r.status === 'latest' ? 'ok' : 'info');
+                // an update that is downloading already shows in the header, so no second notice for it
+                if (r.status !== 'downloading') toast(r.message, r.status === 'error' ? 'error' : r.status === 'latest' ? 'ok' : 'info');
               }}
             >
               Check for updates

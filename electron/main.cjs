@@ -194,6 +194,7 @@ ipcMain.handle('convert:htmlToPdf', (_e, { html, name }) => conv.htmlToPdf(Strin
 // The UI calls this once its listeners are attached; returns files queued at startup.
 ipcMain.handle('app:ready', async () => {
   rendererReady = true;
+  setTimeout(pushUpdateState, 200); // an update found while the window was still loading
   const files = pendingFiles.splice(0);
   const out = [];
   for (const p of files) {
@@ -310,6 +311,8 @@ ipcMain.handle('fonts:load', async (_e, { family, bold, italic }) => {
 
 ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('app:version', () => app.getVersion());
+// Windows won't let an app make itself the default: open the Default apps page so the user can choose PweDeF for .pdf
+ipcMain.handle('app:defaultApps', () => shell.openExternal('ms-settings:defaultapps'));
 ipcMain.handle('app:confirmClose', () => {
   if (win) {
     win.__allowClose = true;
@@ -329,6 +332,14 @@ ipcMain.handle('app:installUpdate', () => {
 // Installed copies check on launch + hourly, download in the background, and
 // install on restart (the UI shows a "Restart to update" button).
 let updaterRef = null;
+// what the window should show about an update; resent when the window finishes loading (a notice sent too early would be lost)
+let updateState = null;
+function pushUpdateState() {
+  if (!win || !updateState) return;
+  win.webContents.send('update:available', updateState.version);
+  if (updateState.ready) win.webContents.send('update:ready', updateState.version);
+  else win.webContents.send('update:progress', updateState.percent || 0);
+}
 function setupAutoUpdate() {
   if (DEV_URL || !app.isPackaged) return;
   let autoUpdater;
@@ -339,12 +350,32 @@ function setupAutoUpdate() {
   }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-available', (info) => win && win.webContents.send('update:available', info.version));
-  autoUpdater.on('download-progress', (p) => win && win.webContents.send('update:progress', Math.round(p.percent)));
-  autoUpdater.on('update-downloaded', (info) => win && win.webContents.send('update:ready', info.version));
+  autoUpdater.on('update-available', (info) => {
+    updateState = { version: info.version, ready: false, percent: 0 };
+    if (win && rendererReady) win.webContents.send('update:available', info.version);
+  });
+  autoUpdater.on('download-progress', (p) => {
+    if (updateState) updateState.percent = Math.round(p.percent);
+    if (win && rendererReady) win.webContents.send('update:progress', Math.round(p.percent));
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    updateState = { version: info.version, ready: true, percent: 100 };
+    if (win && rendererReady) win.webContents.send('update:ready', info.version);
+  });
   autoUpdater.on('error', (err) => console.error('updater', err));
-  autoUpdater.checkForUpdates().catch(() => {});
-  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 1000 * 60 * 60);
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  check(); // every time the app opens
+  setTimeout(check, 20 * 1000); // and once more shortly after, in case the network was not up yet
+  setInterval(check, 1000 * 60 * 30);
+  // coming back to the app after a while (e.g. it was minimized overnight): look again
+  let lastCheck = Date.now();
+  if (win)
+    win.on('focus', () => {
+      if (Date.now() - lastCheck > 10 * 60 * 1000) {
+        lastCheck = Date.now();
+        check();
+      }
+    });
   updaterRef = autoUpdater;
 }
 

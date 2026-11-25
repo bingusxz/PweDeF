@@ -109,7 +109,7 @@ export function HelpDialog({ onClose, onTour, version, initial }: { onClose: () 
             <>
               <h3>About PweDeF</h3>
               <p>
-                Version <b>{version || '—'}</b>. A PDF tool for editing, signing, converting and organizing.
+                Version <b>{version || '-'}</b>. A PDF tool for editing, signing, converting and organizing.
               </p>
               <p>
                 Created by <b>{AUTHOR}</b>. Free and open source.
@@ -119,6 +119,10 @@ export function HelpDialog({ onClose, onTour, version, initial }: { onClose: () 
                 </a>
               </p>
               <p>It works on your own computer, updates itself, and does not upload your documents.</p>
+              <p>
+                <b>Open PDFs with PweDeF by default:</b> click the button, then in Windows pick <b>.pdf</b> and choose <b>PweDeF</b> (Windows only lets you make this choice yourself). Or right-click any PDF, choose Open with, then PweDeF, and tick “Always”.
+              </p>
+              <button onClick={() => window.acro.openDefaultApps()}>Make PweDeF my default PDF app…</button>{' '}
               <button
                 onClick={async () => {
                   setUpd((await window.acro.checkUpdates()).message);

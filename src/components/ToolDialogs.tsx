@@ -88,7 +88,7 @@ function OptimizeDialog({ onClose, onRun, size }: { onClose: () => void; onRun: 
           <input type="radio" checked={preset === k} onChange={() => setPreset(k)} />
           <span>
             <b>{OPTIMIZE_PRESETS[k].name}</b>
-            <span className="muted"> — {OPTIMIZE_PRESETS[k].hint}</span>
+            <span className="muted">: {OPTIMIZE_PRESETS[k].hint}</span>
           </span>
         </label>
       ))}
@@ -244,7 +244,7 @@ function WordDialog({ onClose, onRun }: { onClose: () => void; onRun: (m: WordMo
       <input type="radio" checked={mode === m} onChange={() => setMode(m)} />
       <span>
         <b>{title}</b>
-        <span className="muted"> — {text}</span>
+        <span className="muted">: {text}</span>
       </span>
     </label>
   );
@@ -266,14 +266,14 @@ function PptDialog({ onClose, onRun }: { onClose: () => void; onRun: (m: PptMode
         <input type="radio" checked={mode === 'editable'} onChange={() => setMode('editable')} />
         <span>
           <b>Editable slides</b>
-          <span className="muted"> — one slide per page with the page's pictures and lines as the background and the words as real text boxes you can edit.</span>
+          <span className="muted">: one slide per page with the page's pictures and lines as the background and the words as real text boxes you can edit.</span>
         </span>
       </label>
       <label className="choice">
         <input type="radio" checked={mode === 'exact'} onChange={() => setMode('exact')} />
         <span>
           <b>Exact picture</b>
-          <span className="muted"> — each page placed as one image. Identical look, nothing is editable.</span>
+          <span className="muted">: each page placed as one image. Identical look, nothing is editable.</span>
         </span>
       </label>
       <p className="muted small-text">Pages whose text can't be separated safely stay as pictures automatically.</p>
@@ -632,9 +632,9 @@ function PropsDialog({ onClose, onRun, bytes }: { onClose: () => void; onRun: (m
         <label>Pages</label>
         <div>{m.pages}</div>
         <label>Producer</label>
-        <div className="muted">{m.producer || '—'}</div>
+        <div className="muted">{m.producer || '-'}</div>
         <label>Creator</label>
-        <div className="muted">{m.creator || '—'}</div>
+        <div className="muted">{m.creator || '-'}</div>
       </div>
     </Modal>
   );

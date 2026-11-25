@@ -37,7 +37,7 @@ const TOOL_GROUPS: { tool: Tool; icon: string; label: string; key?: string }[][]
     { tool: 'hand', icon: 'hand', label: 'Pan (H)', key: 'h' },
   ],
   [
-    { tool: 'editText', icon: 'editText', label: 'Edit existing text (E) — click any word/line', key: 'e' },
+    { tool: 'editText', icon: 'editText', label: 'Edit existing text (E): click any word or line', key: 'e' },
     { tool: 'text', icon: 'text', label: 'Add text (T)', key: 't' },
     { tool: 'move', icon: 'moveTool', label: 'Move (M): drag a box around anything, then drag the box to move it', key: 'm' },
     { tool: 'whiteout', icon: 'whiteout', label: 'Whiteout / cover (W)', key: 'w' },
@@ -51,13 +51,13 @@ const TOOL_GROUPS: { tool: Tool; icon: string; label: string; key?: string }[][]
   ],
   [
     { tool: 'ink', icon: 'ink', label: 'Draw freehand (D)', key: 'd' },
-    { tool: 'rect', icon: 'rect', label: 'Rectangle (R) — Shift for square', key: 'r' },
+    { tool: 'rect', icon: 'rect', label: 'Rectangle (R). Shift for square', key: 'r' },
     { tool: 'ellipse', icon: 'ellipse', label: 'Ellipse (O)', key: 'o' },
-    { tool: 'line', icon: 'line', label: 'Line (L) — Shift snaps 45°', key: 'l' },
+    { tool: 'line', icon: 'line', label: 'Line (L). Shift snaps 45°', key: 'l' },
     { tool: 'arrow', icon: 'arrow', label: 'Arrow (A)', key: 'a' },
   ],
-  [{ tool: 'redact', icon: 'redact', label: 'Redact — permanently removes content on save', key: 'x' }],
-  [{ tool: 'field', icon: 'form', label: 'Form designer (F): add fillable fields — text, check box, radio, dropdown, signature', key: 'f' }],
+  [{ tool: 'redact', icon: 'redact', label: 'Redact: permanently removes content on save', key: 'x' }],
+  [{ tool: 'field', icon: 'form', label: 'Form designer (F): add fillable fields: text, check box, radio, dropdown, signature', key: 'f' }],
 ];
 
 /** Toolbar groups (by position in TOOL_GROUPS) that fold into the "More" menu on narrow windows: markup, shapes, form field. */
@@ -102,6 +102,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   // narrow windows: the markup, shape and form tools move into a "More" menu so the toolbar stays on one line
   const [compact, setCompact] = useState(() => window.innerWidth < 1180);
   const [moreMenu, setMoreMenu] = useState(false);
+  const [saveMenu, setSaveMenu] = useState(false);
   useEffect(() => {
     const f = () => setCompact(window.innerWidth < 1180);
     window.addEventListener('resize', f);
@@ -958,10 +959,24 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
       <div className="editor">
         {/* ---------- toolbar ---------- */}
         <div className="toolbar">
-          <div className="tb-group">
+          <div className="tb-group rel">
             <button className="icon-btn" title="Save (Ctrl+S)" onClick={() => save(false)}>
               <Icon name="save" />
             </button>
+            <button className="icon-btn save-as-btn" title="Save as… PDF, Word, Excel, PowerPoint, images or text" aria-label="Save as" aria-expanded={saveMenu} onClick={() => setSaveMenu((v) => !v)}>
+              <Icon name="chevD" size={14} />
+            </button>
+            {saveMenu && (
+              <div className="menu more-menu" onMouseLeave={() => setSaveMenu(false)} onClick={() => setSaveMenu(false)}>
+                <div className="menu-head">Save as</div>
+                <button onClick={() => save(true)}><Icon name="save" /> PDF (a copy)…</button>
+                <button onClick={() => setToolDialog('toWord')}><Icon name="word" /> Word document (.docx)…</button>
+                <button onClick={() => exportOffice('excel')}><Icon name="excel" /> Excel workbook (.xlsx)</button>
+                <button onClick={() => setToolDialog('toPpt')}><Icon name="ppt" /> PowerPoint (.pptx)…</button>
+                <button onClick={() => setToolDialog('exportImages')}><Icon name="image" /> Images (JPG or PNG)…</button>
+                <button onClick={quickActions.exportText}><Icon name="txt" /> Plain text (.txt)</button>
+              </div>
+            )}
             <button className="icon-btn" title="Undo (Ctrl+Z)" disabled={!tab.past.length} onClick={undo}>
               <Icon name="undo" />
             </button>
@@ -1010,7 +1025,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
                         setMoreMenu(false);
                       }}
                     >
-                      <Icon name={t.icon} /> {t.label.replace(/s*[(—:].*$/, '')}
+                      <Icon name={t.icon} /> {t.label.replace(/\s*[(:].*$/, '')}
                     </button>
                   ))}
                 </div>
@@ -1049,7 +1064,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
             <button className="icon-btn" title="Zoom out (Ctrl -)" onClick={() => zoomTo(zoom / 1.2)}>
               <Icon name="zoomOut" />
             </button>
-            <button className="zoom-label" title="Fit width (Ctrl 0) — click again for fit page" onClick={() => (Math.abs(zoom - 1) < 0.01 ? fitWidth() : fitPage())}>
+            <button className="zoom-label" title="Fit width (Ctrl 0). Click again for fit page" onClick={() => (Math.abs(zoom - 1) < 0.01 ? fitWidth() : fitPage())}>
               {Math.round(zoom * 100)}%
             </button>
             <button className="icon-btn" title="Zoom in (Ctrl +)" onClick={() => zoomTo(zoom * 1.2)}>
@@ -1303,10 +1318,10 @@ function ContextBar({
   const hints: Partial<Record<Tool, string>> = {
     select: 'Select & copy text · click markup to move/resize · fill form fields directly on the page',
     editText: 'Every outlined piece of text can be edited: click it, type, then Save. It keeps the original font and size. No outlines? The page is a scan; run All tools → OCR first.',
-    highlight: 'Select text to highlight it — or drag a box on scanned pages.',
+    highlight: 'Select text to highlight it, or drag a box on scanned pages.',
     underline: 'Select text to underline it.',
     strike: 'Select text to strike it through.',
-    whiteout: 'Drag to cover content with white (visual only — use Redact to truly remove).',
+    whiteout: 'Drag to cover content with white (visual only. Use Redact to truly remove).',
     redact: `Drag over anything sensitive. On save, marked pages are rebuilt so the content is gone for good.${redactCount ? ` (${redactCount} marked)` : ''}`,
     note: 'Click to drop a comment.',
     mark: 'Click the centre of a box to tick it. Works on printed boxes that are not real form fields.',

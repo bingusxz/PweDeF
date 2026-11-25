@@ -1044,7 +1044,7 @@ function HtmlAnnot({ a, draft, painted }: { a: Annot; draft?: boolean; painted?:
       body = <div className="fill redact" />;
       break;
     case 'image':
-      body = <img src={a.dataUrl} draggable={false} alt={a.label || 'image'} />;
+      body = <img src={a.dataUrl} draggable={false} alt={a.label || 'image'} style={a.label === 'signature' || a.label === 'initials' || a.label === 'stamp' ? { mixBlendMode: 'multiply' } : undefined} />;
       break;
     case 'note':
       body = (

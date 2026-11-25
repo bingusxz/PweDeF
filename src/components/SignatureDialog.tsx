@@ -19,6 +19,7 @@ import {
   type StampShape,
 } from '../lib/stamps';
 import { uid } from '../lib/util';
+import { whiteToTransparent } from '../lib/pagePictures';
 import type { PendingImage } from './EditorContext';
 import { IMAGE_FILTERS } from '../lib/convert';
 
@@ -258,7 +259,8 @@ export function SignatureDialog({
     c.width = bmp.width;
     c.height = bmp.height;
     c.getContext('2d')!.drawImage(bmp, 0, 0);
-    await finish(c.toDataURL('image/png'), kind, true);
+    // an uploaded e-signature is usually ink on white paper: make the paper see-through before saving it
+    await finish(await whiteToTransparent(c.toDataURL('image/png')), kind, true);
   };
 
   const tabs: [TabKey, string][] = [

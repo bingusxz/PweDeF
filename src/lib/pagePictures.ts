@@ -107,9 +107,20 @@ export async function whiteToTransparent(dataUrl: string): Promise<string> {
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(im, 0, 0);
   const d = ctx.getImageData(0, 0, c.width, c.height);
+  // the paper colour: the bright end of the picture (scans are often light grey, not pure white)
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < d.data.length; i += 4) hist[((d.data[i] * 299 + d.data[i + 1] * 587 + d.data[i + 2] * 114) / 1000) | 0]++;
+  let acc = 0, paper = 255;
+  for (let v = 255; v >= 0; v--) {
+    acc += hist[v];
+    if (acc >= (d.data.length / 4) * 0.25) {
+      paper = Math.max(200, v);
+      break;
+    }
+  }
   for (let i = 0; i < d.data.length; i += 4) {
     const lum = (d.data[i] * 299 + d.data[i + 1] * 587 + d.data[i + 2] * 114) / 1000;
-    const a = lum > 245 ? 0 : lum < 170 ? 255 : Math.round(((245 - lum) / 75) * 255);
+    const a = lum >= paper - 10 ? 0 : lum <= paper - 85 ? 255 : Math.round(((paper - 10 - lum) / 75) * 255);
     d.data[i + 3] = Math.min(d.data[i + 3], a);
   }
   ctx.putImageData(d, 0, 0);

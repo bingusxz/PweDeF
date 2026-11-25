@@ -3332,3 +3332,36 @@ g.svg-annot.interactive {
   filter: brightness(0) invert(1) drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff) drop-shadow(0 0 3px #fff);
   opacity: 1;
 }
+
+/* ---- update notice: one floating card (no pill in the title bar) ---- */
+.update-float {
+  position: fixed;
+  right: 16px;
+  bottom: 44px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px 14px;
+  background: var(--paper) url('./paper-grain.png');
+  border: 1px solid var(--ink-3);
+  border-radius: 2px 6px 3px 2px;
+  box-shadow: 2px 3px 0 color-mix(in srgb, var(--rule-2) 55%, transparent), 0 12px 24px -10px rgba(40, 20, 40, 0.5);
+  animation: toast-in 280ms var(--ease);
+}
+.update-float b {
+  font: 700 16px/1.1 var(--label);
+}
+.update-float span {
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.update-float.ready {
+  border-color: var(--serial);
+}
+.update-float-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

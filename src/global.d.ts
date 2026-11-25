@@ -23,6 +23,7 @@ declare global {
       version(): Promise<string>;
       ready(): Promise<OpenedFile[]>;
       confirmClose(): Promise<void>;
+      openDefaultApps(): Promise<void>;
       installUpdate(): Promise<void>;
       checkUpdates(): Promise<{ status: 'dev' | 'latest' | 'downloading' | 'error'; message: string }>;
       matchFont(pdfName: string): Promise<{ family: string; bold: boolean; italic: boolean; file: string; exact: boolean } | null>;

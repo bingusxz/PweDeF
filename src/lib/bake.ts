@@ -494,7 +494,9 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
       }
       const spin = a.rotation || 0;
       const o = turn(P(a.x, a.y + a.h), P(a.x + a.w / 2, a.y + a.h / 2), spin);
-      page.drawImage(img, { x: o.x, y: o.y, width: a.w, height: a.h, rotate: degrees(rot - spin) });
+      // signatures, initials and stamps are drawn "multiplied": their white paper never hides the text under them, only the ink shows
+      const ink = a.label === 'signature' || a.label === 'initials' || a.label === 'stamp';
+      page.drawImage(img, { x: o.x, y: o.y, width: a.w, height: a.h, rotate: degrees(rot - spin), ...(ink ? { blendMode: BlendMode.Multiply } : {}) });
       break;
     }
     case 'mark': {
