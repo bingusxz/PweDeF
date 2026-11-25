@@ -17,23 +17,32 @@ const INKS = [
 ];
 const TILT = [-2.5, 1.5, -1, 2.2, -1.8, 1, -2.2, 1.8];
 
+type StampShow = { name: boolean; date: boolean; time: boolean };
+
 /** The stamp pad: every stamp shown as the real impression it will leave on the page. */
 function StampPad({
   onPick,
-  stampSub,
-  setStampSub,
+  show,
+  setShow,
   userName,
   setUserName,
 }: {
   onPick: (img: PendingImage) => void;
-  stampSub: boolean;
-  setStampSub: (v: boolean) => void;
+  show: StampShow;
+  setShow: (v: StampShow) => void;
   userName: string;
   setUserName: (v: string) => void;
 }) {
   const [custom, setCustom] = useState('');
   const [ink, setInk] = useState(INKS[0].color);
-  const sub = stampSub ? `${userName ? userName + ' · ' : ''}${new Date().toLocaleString()}` : undefined;
+  // the line under the stamp is built from whichever of name / date / time are switched on
+  const now = new Date();
+  const parts = [
+    show.name && userName.trim() ? userName.trim() : '',
+    show.date ? now.toLocaleDateString() : '',
+    show.time ? now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+  ].filter(Boolean);
+  const sub = parts.length ? parts.join(' · ') : undefined;
   const impressions = useMemo(() => STAMPS.map((s) => ({ ...s, ...stampImage(s.label, s.color, sub) })), [sub]);
   const customImg = useMemo(() => (custom.trim() ? stampImage(custom.trim().toUpperCase(), ink, sub) : null), [custom, ink, sub]);
   const use = (st: { dataUrl: string; w: number; h: number }) => onPick({ dataUrl: st.dataUrl, w: st.w, h: st.h, label: 'stamp' });
@@ -41,10 +50,17 @@ function StampPad({
   return (
     <>
       <div className="stamp-opts">
+        <span className="ctx-cap">Print under the stamp</span>
         <label className="check">
-          <input type="checkbox" checked={stampSub} onChange={(e) => setStampSub(e.target.checked)} /> Print name and date under the stamp
+          <input type="checkbox" checked={show.name} onChange={(e) => setShow({ ...show, name: e.target.checked })} /> Name
         </label>
-        {stampSub && (
+        <label className="check">
+          <input type="checkbox" checked={show.date} onChange={(e) => setShow({ ...show, date: e.target.checked })} /> Date
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={show.time} onChange={(e) => setShow({ ...show, time: e.target.checked })} /> Time
+        </label>
+        {show.name && (
           <input
             placeholder="Name to print"
             value={userName}
@@ -107,7 +123,7 @@ export function SignatureDialog({
   const [typed, setTyped] = useState('');
   const [font, setFont] = useState(SIGNATURE_FONTS[0]);
   const [remember, setRemember] = useState(true);
-  const [stampSub, setStampSub] = useState(true);
+  const [show, setShow] = useState<StampShow>({ name: true, date: true, time: true });
   const [userName, setUserName] = useState(() => localStorage.getItem('acro.user') || '');
   const canvas = useRef<HTMLCanvasElement>(null);
   const drawn = useRef(false);
@@ -295,7 +311,7 @@ export function SignatureDialog({
         </div>
       )}
 
-      {tab === 'stamp' && <StampPad onPick={onPick} stampSub={stampSub} setStampSub={setStampSub} userName={userName} setUserName={setUserName} />}
+      {tab === 'stamp' && <StampPad onPick={onPick} show={show} setShow={setShow} userName={userName} setUserName={setUserName} />}
     </Modal>
   );
 }

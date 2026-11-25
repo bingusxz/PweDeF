@@ -198,7 +198,9 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       const [x, y] = toPage(ev.clientX, ev.clientY);
       if (tool === 'ink') {
         const pts = current && current.type === 'ink' ? current.points : [[x0, y0] as [number, number]];
-        current = { id, page: index, type: 'ink', points: [...pts, [x, y]], color: style.color, width: style.width, dash: style.dash };
+        // holding Shift draws a perfectly straight stroke from where the pen went down
+        const next = ev.shiftKey ? [[x0, y0] as [number, number], [x, y] as [number, number]] : [...pts, [x, y] as [number, number]];
+        current = { id, page: index, type: 'ink', points: next, color: style.color, width: style.width, dash: style.dash };
       } else if (tool === 'line' || tool === 'arrow') {
         let x2 = x, y2 = y;
         if (ev.shiftKey) {
@@ -250,6 +252,8 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
         return;
       }
       ed.addAnnot(current);
+      // a freshly drawn shape stays selected, so thickness, colour and fill apply to it straight away
+      if (current.type === 'rect' || current.type === 'ellipse' || current.type === 'line' || current.type === 'arrow') ed.select(current.id);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);

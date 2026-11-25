@@ -1,5 +1,4 @@
 :root {
-  --pencil-pointer: url('./pencil-cursor.png') 2 29, pointer;
   color-scheme: light;
   /* surfaces */
   --desk: #e7d8bf; /* behind the documents */
@@ -52,7 +51,6 @@ body,
   margin: 0;
 }
 body {
-  cursor: url('./pencil-cursor.png') 2 29, auto;
   background: var(--chrome);
   color: var(--ink);
   font: 13px/1.45 var(--ui);
@@ -87,7 +85,7 @@ button {
   border: 1px solid var(--rule-2);
   border-radius: 3px;
   padding: 6px 12px;
-  cursor: var(--pencil-pointer);
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -343,7 +341,7 @@ code {
   max-width: 240px;
   flex: 0 0 auto;
   color: var(--ink-2);
-  cursor: var(--pencil-pointer);
+  cursor: pointer;
 }
 .tab-x { flex-shrink: 0; }
 .tab-name {
@@ -1027,7 +1025,7 @@ code {
   padding: 6px;
   border-radius: 3px;
   border: 1.5px solid transparent;
-  cursor: var(--pencil-pointer);
+  cursor: pointer;
   color: var(--ink-3);
   font-family: var(--typed);
   font-size: 11.5px;
@@ -1391,7 +1389,7 @@ g.svg-annot.interactive {
   cursor: crosshair;
 }
 .page.tool-ink .capture {
-  cursor: url('./pencil-cursor.png') 2 29, crosshair;
+  cursor: crosshair;
 }
 .page.tool-hand .capture {
   cursor: grab;
@@ -1859,7 +1857,7 @@ g.svg-annot.interactive {
   padding: 10px 12px;
   border: 1px solid var(--rule-2);
   border-radius: 2px;
-  cursor: var(--pencil-pointer);
+  cursor: pointer;
 }
 .choice:has(input:checked) {
   border-color: var(--serial);
@@ -1980,10 +1978,6 @@ g.svg-annot.interactive {
   .filing-log { border-top: 1px solid var(--rule); }
 }
 
-/* One native cursor across the Electron renderer, including PDF.js tool layers. */
-html, body, #root, #root * {
-  cursor: var(--pencil-pointer) !important;
-}
 /* Tool groups as individual sheets on the home desk. */
 .home-body .form-section,
 .home-body .filing-log {
@@ -2062,16 +2056,6 @@ html, body, #root, #root * {
     transition-duration: 60ms;
   }
 }
-.editor-pencil {
-  position: fixed;
-  inset: 0 auto auto 0;
-  width: 32px;
-  height: 32px;
-  z-index: 2147483647;
-  pointer-events: none;
-}
-#root .editor:has(> .editor-pencil:not([hidden])),
-#root .editor:has(> .editor-pencil:not([hidden])) * { cursor: none !important; }
 
 .editor .toolbar, .editor .panel-toolbar, .editor .rail, .editor .thumbs {
   background-image: url('./paper-grain.png');
@@ -2164,3 +2148,4 @@ html, body, #root, #root * {
 .toast {
   border-top-width: 1px;
 }
+

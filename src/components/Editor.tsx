@@ -1,4 +1,3 @@
-import pencilCursor from '../pencil-cursor.png';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadPdf, pdfjs, type PDFDocumentProxy } from '../lib/pdf';
 import type { Annot, DocTab, RedactAnnot, Rect, Snapshot, StyleState, Tool } from '../types';
@@ -66,7 +65,6 @@ const COLORS = ['#111111', '#c62828', '#1d5fbf', '#1f8a3b', '#d97706', '#6b3fbf'
 const HL_COLORS = ['#ffe14d', '#7ee08a', '#7cc7ff', '#ff9ccf', '#ffb35c'];
 
 export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
-  const pointerRef = useRef<HTMLImageElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   // bumps every time a freshly loaded document is shown; keys pages so they never show stale content
   const [loadId, setLoadId] = useState(0);
@@ -352,6 +350,41 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
     }),
     [zoom, tool, style, tab.annots, tab.form, selectedId, editingId, hits, activeHit, pendingImage, mutate, onUpdate],
   );
+
+  const imageInput = useRef<HTMLInputElement>(null);
+  /** Insert image: pick a picture file, shrink huge photos, then click on the page to place it. */
+  const onImageFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const src = await new Promise<string>((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result));
+        r.onerror = () => rej(r.error);
+        r.readAsDataURL(file);
+      });
+      const img = await new Promise<HTMLImageElement>((res, rej) => {
+        const i = new Image();
+        i.onload = () => res(i);
+        i.onerror = () => rej(new Error('not an image'));
+        i.src = src;
+      });
+      // keep phone photos from bloating the PDF: cap the longest side at 1800px
+      const k = Math.min(1, 1800 / Math.max(img.naturalWidth, img.naturalHeight));
+      let dataUrl = src;
+      if (k < 1) {
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k);
+        c.height = Math.round(img.naturalHeight * k);
+        c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+        dataUrl = c.toDataURL(file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.9);
+      }
+      const w = Math.min(240, img.naturalWidth);
+      setTool('place');
+      setPendingImage({ dataUrl, w, h: (img.naturalHeight / img.naturalWidth) * w, label: 'image' });
+    } catch {
+      toast("Couldn't open that picture. Try a JPG or PNG.", 'error');
+    }
+  };
 
   const onPickImage = (img: PendingImage) => {
     const field = sigDialog?.field;
@@ -707,6 +740,12 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
       } else if (mod && e.key === '0') {
         e.preventDefault();
         fitWidth();
+      } else if (typing && e.key === 'Escape') {
+        // Esc from a toolbar box (thickness, font size…) must still drop the tool and let you pick shapes
+        target.blur();
+        setSelected(null);
+        setTool('select');
+        setPendingImage(null);
       } else if (typing) return;
       else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         api.removeAnnot(selectedId);
@@ -740,17 +779,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
 
   return (
     <EditorCtx.Provider value={api}>
-      <div className="editor"
-        onPointerMoveCapture={(event) => {
-          const pointer = pointerRef.current;
-          if (!pointer) return;
-          pointer.hidden = event.pointerType !== 'mouse' || !pointer.complete || !pointer.naturalWidth;
-          pointer.style.transform = `translate3d(${event.clientX - 2}px, ${event.clientY - 29}px, 0)`;
-        }}
-        onPointerLeave={() => { if (pointerRef.current) pointerRef.current.hidden = true; }}
-        onDragStartCapture={() => { if (pointerRef.current) pointerRef.current.hidden = true; }}
-      >
-        <img ref={pointerRef} className="editor-pencil" src={pencilCursor} alt="" hidden draggable={false} />
+      <div className="editor">
         {/* ---------- toolbar ---------- */}
         <div className="toolbar">
           <div className="tb-group">
@@ -785,6 +814,19 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
             <button className="tb-btn accent" title="Fill & sign" onClick={() => setSigDialog({})}>
               <Icon name="sign" /> Sign
             </button>
+            <button className="icon-btn" title="Insert image" onClick={() => imageInput.current?.click()}>
+              <Icon name="image" />
+            </button>
+            <input
+              ref={imageInput}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                onImageFile(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
             <button className="icon-btn" title="Stamps" onClick={() => setSigDialog({ tab: 'stamp' })}>
               <Icon name="stamp" />
             </button>
