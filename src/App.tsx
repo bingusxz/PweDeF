@@ -7,7 +7,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToolHub, type HubAction } from './components/ToolHub';
 import { Modal } from './components/Modal';
 import { BrandName, Wordmark } from './components/Logo';
-import { applyTheme, loadTheme, nextTheme, type ThemeMode } from './lib/theme';
 import { Icon } from './components/Icon';
 import { onToast, toast, errText, type ToastMsg } from './lib/toast';
 import { uid } from './lib/util';
@@ -104,8 +103,6 @@ export default function App() {
     }
   };
 
-  const [theme, setTheme] = useState<ThemeMode>(loadTheme);
-  useEffect(() => applyTheme(theme), []);
   const [caps, setCaps] = useState<{ office: boolean; libreoffice: boolean } | null>(null);
   const [urlDialog, setUrlDialog] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
@@ -304,18 +301,6 @@ export default function App() {
             {update.ready ? `Restart to update to v${update.version}` : `Downloading v${update.version}…`}
           </button>
         )}
-        <button
-          className="icon-btn theme-btn"
-          onClick={() => {
-            const m = nextTheme(theme);
-            setTheme(m);
-            applyTheme(m);
-          }}
-          title={`Appearance: ${theme === 'system' ? 'match Windows' : theme} (click to change)`}
-          aria-label="Change appearance"
-        >
-          <Icon name={theme === 'system' ? 'themeAuto' : theme === 'light' ? 'sun' : 'moon'} size={16} />
-        </button>
       </header>
 
       <main className="main">

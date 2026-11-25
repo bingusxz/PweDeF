@@ -41,69 +41,6 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    color-scheme: dark;
-    --desk: #211822;
-    --chrome: #2a1f2b;
-    --paper: #332834;
-    --paper-2: #3c2e3b;
-    --paper-3: #483747;
-    --ink: #fff1dd;
-    --ink-2: #dfcbbf;
-    --ink-3: #c7b1aa;
-    --rule: #51404d;
-    --rule-2: #705865;
-    --serial: #ffad77;
-    --serial-hover: #ffc497;
-    --serial-ink: #1a0a0d;
-    --serial-wash: rgba(255, 173, 119, 0.12);
-    --copy-yellow: #d8c15c;
-    --copy-blue: #8eaedb;
-    --copy-pink: #d99aa8;
-    --copy-green: #98c693;
-    --copy-white: #fff1dd;
-    --stock-ink: #12162b;
-    --ok: #6fd391;
-    --warn: #f0c46a;
-    --logo-paper: #fff1dd;
-    --logo-ink: #12162b;
-    --logo-edge: #211822;
-    --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 22px rgba(0, 0, 0, 0.35);
-    --shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.5), 0 18px 44px rgba(0, 0, 0, 0.55);
-  }
-}
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --desk: #211822;
-  --chrome: #2a1f2b;
-  --paper: #332834;
-  --paper-2: #3c2e3b;
-  --paper-3: #483747;
-  --ink: #fff1dd;
-  --ink-2: #dfcbbf;
-  --ink-3: #c7b1aa;
-  --rule: #51404d;
-  --rule-2: #705865;
-  --serial: #ffad77;
-  --serial-hover: #ffc497;
-  --serial-ink: #1a0a0d;
-  --serial-wash: rgba(255, 173, 119, 0.12);
-  --copy-yellow: #d8c15c;
-  --copy-blue: #8eaedb;
-  --copy-pink: #d99aa8;
-  --copy-green: #98c693;
-  --copy-white: #fff1dd;
-  --stock-ink: #12162b;
-  --ok: #6fd391;
-  --warn: #f0c46a;
-  --logo-paper: #fff1dd;
-  --logo-ink: #12162b;
-  --logo-edge: #211822;
-  --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 22px rgba(0, 0, 0, 0.35);
-  --shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.5), 0 18px 44px rgba(0, 0, 0, 0.55);
-}
-
 /* ---------- base ---------- */
 * {
   box-sizing: border-box;
@@ -1971,19 +1908,6 @@ g.svg-annot.interactive {
 }
 .form-section-title { border-radius: 2px 6px 0 0; }
 
-:root[data-theme='dark'] .painted-wordmark {
-  background: #ffd36b;
-  padding: 2px 5px;
-  border-radius: 3px 6px 3px 5px;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .painted-wordmark {
-    background: #ffd36b;
-    padding: 2px 5px;
-    border-radius: 3px 6px 3px 5px;
-  }
-}
-
 .home-head { align-items: center; padding-block: 18px; }
 .home-actions { gap: 6px; }
 .find-field {
@@ -2138,3 +2062,4 @@ html, body, #root, #root * {
   outline-offset: 2px;
   box-shadow: 2px 3px 0 var(--paper), 3px 4px 0 var(--rule-2);
 }
+

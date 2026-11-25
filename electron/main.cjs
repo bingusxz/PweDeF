@@ -54,12 +54,9 @@ const CSP = [
   "font-src 'self' app: data:",
 ].join('; ');
 
-// Caption-button strip colours, matched to the titlebar tokens in styles.css.
-const CHROME = {
-  light: { color: '#f2e4cf', symbolColor: '#401e41', bg: '#e7d8bf' },
-  dark: { color: '#2a1f2b', symbolColor: '#fff1dd', bg: '#211822' },
-};
-const chrome = () => CHROME[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
+// Keep Electron's native surfaces in the app's light paper theme.
+nativeTheme.themeSource = 'light';
+const chrome = () => ({ color: '#f2e4cf', symbolColor: '#401e41', bg: '#e7d8bf' });
 
 function createWindow() {
   win = new BrowserWindow({
@@ -291,23 +288,6 @@ ipcMain.handle('fonts:load', async (_e, { family, bold, italic }) => {
     return null;
   }
 });
-
-function syncWindowTheme() {
-  if (!win || win.isDestroyed()) return;
-  const c = chrome();
-  try {
-    win.setTitleBarOverlay({ color: c.color, symbolColor: c.symbolColor });
-  } catch {
-    /* overlay unsupported on this platform */
-  }
-  win.setBackgroundColor(c.bg);
-}
-
-ipcMain.handle('theme:set', (_e, mode) => {
-  nativeTheme.themeSource = ['light', 'dark'].includes(mode) ? mode : 'system';
-  syncWindowTheme();
-});
-nativeTheme.on('updated', syncWindowTheme);
 
 ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('app:version', () => app.getVersion());

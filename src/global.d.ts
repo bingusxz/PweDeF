@@ -25,7 +25,6 @@ declare global {
       confirmClose(): Promise<void>;
       installUpdate(): Promise<void>;
       checkUpdates(): Promise<{ status: 'dev' | 'latest' | 'downloading' | 'error'; message: string }>;
-      setTheme?(mode: 'system' | 'light' | 'dark'): Promise<void>;
       matchFont(pdfName: string): Promise<{ family: string; bold: boolean; italic: boolean; file: string; exact: boolean } | null>;
       loadFont(q: { family: string; bold: boolean; italic: boolean }): Promise<{ data: Uint8Array; exact: boolean } | null>;
       listFonts(): Promise<string[]>;

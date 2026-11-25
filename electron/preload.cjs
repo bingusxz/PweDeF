@@ -27,7 +27,6 @@ contextBridge.exposeInMainWorld('acro', {
   confirmClose: () => ipcRenderer.invoke('app:confirmClose'),
   installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
   checkUpdates: () => ipcRenderer.invoke('app:checkUpdates'),
-  setTheme: (mode) => ipcRenderer.invoke('theme:set', mode),
   matchFont: (pdfName) => ipcRenderer.invoke('fonts:match', pdfName),
   loadFont: (q) => ipcRenderer.invoke('fonts:load', q),
   listFonts: () => ipcRenderer.invoke('fonts:list'),
