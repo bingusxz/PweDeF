@@ -1,7 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './Modal';
 import { Icon } from './Icon';
-import { SIGNATURE_FONTS, STAMPS, imageSize, loadSigs, saveSigs, stampImage, trimCanvas, typedSignature, type SavedSig } from '../lib/stamps';
+import {
+  SIGNATURE_FONTS,
+  STAMP_SETS,
+  STAMP_SHAPES,
+  imageSize,
+  loadSigs,
+  loadStamps,
+  saveSigs,
+  saveStamps,
+  stampImage,
+  trimCanvas,
+  typedSignature,
+  type SavedSig,
+  type SavedStamp,
+  type StampDef,
+  type StampShape,
+} from '../lib/stamps';
 import { uid } from '../lib/util';
 import type { PendingImage } from './EditorContext';
 import { IMAGE_FILTERS } from '../lib/convert';
@@ -35,6 +51,26 @@ function StampPad({
 }) {
   const [custom, setCustom] = useState('');
   const [ink, setInk] = useState(INKS[0].color);
+  const [shape, setShape] = useState<StampShape>('box');
+  const [setName, setSetName] = useState(STAMP_SETS[0].name);
+  const [mine, setMine] = useState<SavedStamp[]>(loadStamps);
+  const MINE = 'My stamps';
+  const baseSet: StampDef[] =
+    setName === MINE ? mine.map((m) => ({ label: m.label, color: m.color })) : (STAMP_SETS.find((s) => s.name === setName) || STAMP_SETS[0]).stamps;
+  const shapeOf = (i: number): StampShape => (setName === MINE ? mine[i]?.shape || 'box' : 'box');
+  const saveMine = () => {
+    const label = custom.trim().toUpperCase();
+    if (!label) return;
+    const next = [{ id: uid(), label, color: ink, shape }, ...mine.filter((m) => !(m.label === label && m.color === ink && m.shape === shape))];
+    setMine(next);
+    saveStamps(next);
+    setSetName(MINE);
+  };
+  const removeMine = (i: number) => {
+    const next = mine.filter((_, k) => k !== i);
+    setMine(next);
+    saveStamps(next);
+  };
   // the line under the stamp is built from whichever of name / date / time are switched on
   const now = new Date();
   const parts = [
@@ -43,8 +79,12 @@ function StampPad({
     show.time ? now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
   ].filter(Boolean);
   const sub = parts.length ? parts.join(' · ') : undefined;
-  const impressions = useMemo(() => STAMPS.map((s) => ({ ...s, ...stampImage(s.label, s.color, sub) })), [sub]);
-  const customImg = useMemo(() => (custom.trim() ? stampImage(custom.trim().toUpperCase(), ink, sub) : null), [custom, ink, sub]);
+  const impressions = useMemo(
+    () => baseSet.map((s, i) => ({ ...s, ...stampImage(s.label, s.color, sub, shapeOf(i)) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sub, setName, mine],
+  );
+  const customImg = useMemo(() => (custom.trim() ? stampImage(custom.trim().toUpperCase(), ink, sub, shape) : null), [custom, ink, sub, shape]);
   const use = (st: { dataUrl: string; w: number; h: number }) => onPick({ dataUrl: st.dataUrl, w: st.w, h: st.h, label: 'stamp' });
 
   return (
@@ -71,12 +111,28 @@ function StampPad({
           />
         )}
       </div>
-      <div className="stamp-sheet">
-        {impressions.map((s, i) => (
-          <button key={s.label} className="impression" onClick={() => use(s)} title={`Place "${s.label}"`}>
-            <img src={s.dataUrl} alt={s.label} style={{ transform: `rotate(${TILT[i % TILT.length]}deg)` }} />
+      <div className="stamp-sets" role="tablist" aria-label="Stamp sets">
+        {[...STAMP_SETS.map((s) => s.name), MINE].map((n) => (
+          <button key={n} role="tab" aria-selected={setName === n} className={`set-tab ${setName === n ? 'on' : ''}`} onClick={() => setSetName(n)}>
+            {n}
+            {n === MINE && mine.length ? ` (${mine.length})` : ''}
           </button>
         ))}
+      </div>
+      <div className="stamp-sheet">
+        {impressions.map((s, i) => (
+          <div key={`${s.label}-${i}`} className="impression-wrap">
+            <button className="impression" onClick={() => use(s)} title={`Place "${s.label}"`}>
+              <img src={s.dataUrl} alt={s.label} style={{ transform: `rotate(${TILT[i % TILT.length]}deg)` }} />
+            </button>
+            {setName === MINE && (
+              <button className="impression-x" title="Remove from My stamps" aria-label={`Remove ${s.label}`} onClick={() => removeMine(i)}>
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+        {!impressions.length && <p className="note-line">Nothing here yet. Design a stamp below and press "Save to My stamps".</p>}
       </div>
       <div className="stamp-custom">
         <span className="ctx-cap">Your own stamp</span>
@@ -93,7 +149,18 @@ function StampPad({
               onClick={() => setInk(k.color)}
             />
           ))}
+          <input type="color" className="ink-pick" value={ink} onChange={(e) => setInk(e.target.value)} title="Any colour" aria-label="Pick any ink colour" />
         </div>
+        <select className="shape-pick" value={shape} onChange={(e) => setShape(e.target.value as StampShape)} aria-label="Stamp shape">
+          {STAMP_SHAPES.map((s) => (
+            <option key={s.shape} value={s.shape}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <button disabled={!customImg} onClick={saveMine} title="Keep this stamp for next time">
+          Save to My stamps
+        </button>
         <button className="primary" disabled={!customImg} onClick={() => customImg && use(customImg)}>
           Place stamp
         </button>

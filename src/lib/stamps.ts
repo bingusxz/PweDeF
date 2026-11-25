@@ -55,7 +55,15 @@ export const STAMPS: StampDef[] = [
   { label: 'FOR SIGNATURE', color: '#d97706' },
 ];
 
-export function stampImage(label: string, color: string, sub?: string) {
+export type StampShape = 'box' | 'double' | 'oval' | 'plain';
+export const STAMP_SHAPES: { shape: StampShape; name: string }[] = [
+  { shape: 'box', name: 'Box' },
+  { shape: 'double', name: 'Double box' },
+  { shape: 'oval', name: 'Oval' },
+  { shape: 'plain', name: 'Text only' },
+];
+
+export function stampImage(label: string, color: string, sub?: string, shape: StampShape = 'box') {
   const scale = 3;
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d')!;
@@ -66,27 +74,111 @@ export function stampImage(label: string, color: string, sub?: string) {
     ctx.font = `${16 * scale}px Arial, sans-serif`;
     tw = Math.max(tw, ctx.measureText(sub).width);
   }
-  const w = tw + 48 * scale;
-  const h = (sub ? 84 : 64) * scale;
+  // an oval needs more room round the corners of the text than a box does
+  const padX = (shape === 'oval' ? 80 : shape === 'double' ? 56 : 48) * scale;
+  const w = tw + padX;
+  const h = (sub ? 84 : 64) * scale + (shape === 'oval' ? 22 * scale : 0);
   c.width = w;
   c.height = h;
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
   ctx.lineWidth = 4 * scale;
+  const lw = ctx.lineWidth;
   const r = 10 * scale;
-  ctx.beginPath();
-  ctx.roundRect(ctx.lineWidth, ctx.lineWidth, w - 2 * ctx.lineWidth, h - 2 * ctx.lineWidth, r);
-  ctx.stroke();
+  if (shape === 'box' || shape === 'double') {
+    ctx.beginPath();
+    ctx.roundRect(lw, lw, w - 2 * lw, h - 2 * lw, r);
+    ctx.stroke();
+    if (shape === 'double') {
+      ctx.lineWidth = 2 * scale;
+      ctx.beginPath();
+      ctx.roundRect(lw + 7 * scale, lw + 7 * scale, w - 2 * lw - 14 * scale, h - 2 * lw - 14 * scale, r * 0.6);
+      ctx.stroke();
+      ctx.lineWidth = lw;
+    }
+  } else if (shape === 'oval') {
+    ctx.beginPath();
+    ctx.ellipse(w / 2, h / 2, w / 2 - lw, h / 2 - lw, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   ctx.font = `bold ${36 * scale}px Arial, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(label, w / 2, (sub ? 34 : 33) * scale);
+  const dy = shape === 'oval' ? 11 * scale : 0;
+  ctx.fillText(label, w / 2, (sub ? 34 : 33) * scale + dy);
   if (sub) {
     ctx.font = `${16 * scale}px Arial, sans-serif`;
-    ctx.fillText(sub, w / 2, 66 * scale);
+    ctx.fillText(sub, w / 2, 66 * scale + dy);
   }
   inkTexture(ctx, c.width, c.height, label.length);
   return { dataUrl: c.toDataURL('image/png'), w: w / scale, h: h / scale };
+}
+
+/** Ready-made stamp sets. People can also keep their own under "My stamps". */
+export const STAMP_SETS: { name: string; stamps: StampDef[] }[] = [
+  { name: 'General', stamps: STAMPS },
+  {
+    name: 'Accounting',
+    stamps: [
+      { label: 'PAID', color: '#1f8a3b' },
+      { label: 'CHECKED', color: '#1d5fbf' },
+      { label: 'VERIFIED', color: '#6b3fbf' },
+      { label: 'FOR PAYMENT', color: '#d97706' },
+      { label: 'POSTED', color: '#1f8a3b' },
+      { label: 'ON HOLD', color: '#c62828' },
+      { label: 'VOID', color: '#c62828' },
+      { label: 'DUPLICATE', color: '#7a7a7a' },
+    ],
+  },
+  {
+    name: 'Purchasing & Logistics',
+    stamps: [
+      { label: 'RECEIVED', color: '#1d5fbf' },
+      { label: 'INSPECTED', color: '#6b3fbf' },
+      { label: 'FOR DELIVERY', color: '#d97706' },
+      { label: 'DELIVERED', color: '#1f8a3b' },
+      { label: 'PARTIAL', color: '#d97706' },
+      { label: 'BACK ORDER', color: '#c62828' },
+      { label: 'RETURNED', color: '#c62828' },
+      { label: 'URGENT', color: '#c62828' },
+    ],
+  },
+  {
+    name: 'HR & Admin',
+    stamps: [
+      { label: 'CONFIDENTIAL', color: '#c62828' },
+      { label: 'NOTED', color: '#1d5fbf' },
+      { label: 'FOR REVIEW', color: '#d97706' },
+      { label: 'APPROVED', color: '#1f8a3b' },
+      { label: 'DISAPPROVED', color: '#c62828' },
+      { label: 'FILED', color: '#7a7a7a' },
+      { label: 'COPY', color: '#7a7a7a' },
+      { label: 'ORIGINAL', color: '#1f8a3b' },
+    ],
+  },
+];
+
+// ---- the user's own stamps (per machine) ----
+const STAMP_KEY = 'acro.stamps.v1';
+export interface SavedStamp {
+  id: string;
+  label: string;
+  color: string;
+  shape: StampShape;
+}
+export function loadStamps(): SavedStamp[] {
+  try {
+    return JSON.parse(localStorage.getItem(STAMP_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+export function saveStamps(s: SavedStamp[]) {
+  try {
+    localStorage.setItem(STAMP_KEY, JSON.stringify(s.slice(0, 40)));
+  } catch {
+    /* storage full / unavailable */
+  }
 }
 
 /** Uneven rubber-stamp ink: deterministic per stamp so the same stamp always looks the same. */

@@ -7,6 +7,7 @@ release/
 .DS_Store
 .claude/settings.local.json
 public/pdfjs/
+public/ocr/
 .test-out/
 .impeccable/
 

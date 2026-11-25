@@ -1,18 +1,19 @@
-import { useState } from 'react';
 import { Icon } from './Icon';
 
 export type HubAction =
   // need no PDF
-  | 'open' | 'merge' | 'batch' | 'wordToPdf' | 'excelToPdf' | 'pptToPdf' | 'imgToPdf' | 'webToPdf' | 'htmlToPdf' | 'txtToPdf'
+  | 'open' | 'merge' | 'compare' | 'batch' | 'wordToPdf' | 'excelToPdf' | 'pptToPdf' | 'imgToPdf' | 'webToPdf' | 'htmlToPdf' | 'txtToPdf'
   // open a PDF, then run inside the editor
   | 'split' | 'pages' | 'editText' | 'sign' | 'redact' | 'watermark' | 'numbers' | 'ocr' | 'compress' | 'flatten'
-  | 'toWord' | 'toExcel' | 'toPpt' | 'exportImages' | 'toText' | 'properties';
+  | 'toWord' | 'toExcel' | 'toPpt' | 'exportImages' | 'toText' | 'properties' | 'certSign' | 'sigCheck' | 'formDesigner';
 
 interface Tool {
   a: HubAction;
   icon: string;
   title: string;
   desc: string;
+  /** shown with a NEW stamp until people know where to find it */
+  isNew?: boolean;
 }
 
 /** Each section is printed on its own copy stock, like a carbonless form set. */
@@ -21,8 +22,11 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
     title: 'Edit & sign',
     stock: 'white',
     tools: [
-      { a: 'editText', icon: 'editText', title: 'Edit PDF', desc: 'Change text, add images & shapes' },
+      { a: 'editText', icon: 'filePen', title: 'Edit PDF', desc: 'Change text, add images & shapes' },
       { a: 'sign', icon: 'sign', title: 'Sign', desc: 'Signature, initials, stamps' },
+      { a: 'formDesigner', icon: 'formInput', title: 'Form designer', desc: 'Add fillable fields to any PDF', isNew: true },
+      { a: 'certSign', icon: 'shield', title: 'Digital signature', desc: 'Sign with a certificate (.pfx)', isNew: true },
+      { a: 'sigCheck', icon: 'fileCheck', title: 'Check signatures', desc: 'Who signed, was it changed', isNew: true },
       { a: 'redact', icon: 'redact', title: 'Redact', desc: 'Remove sensitive content for good' },
       { a: 'watermark', icon: 'water', title: 'Watermark', desc: 'Text across every page' },
       { a: 'numbers', icon: 'hash', title: 'Page numbers', desc: 'Page or Bates numbering' },
@@ -64,14 +68,18 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
     title: 'Finish & batch',
     stock: 'green',
     tools: [
-      { a: 'compress', icon: 'compress', title: 'Optimize', desc: 'Clean up the file' },
+      { a: 'compress', icon: 'minimize', title: 'Optimize', desc: 'Clean up the file' },
       { a: 'ocr', icon: 'ocr', title: 'Recognize text (OCR)', desc: 'Make scans searchable' },
-      { a: 'flatten', icon: 'form', title: 'Flatten', desc: 'Lock fields and markup in' },
+      { a: 'flatten', icon: 'layers2', title: 'Flatten', desc: 'Lock fields and markup in' },
+      { a: 'compare', icon: 'columns', title: 'Compare PDFs', desc: 'Find what changed between two files', isNew: true },
       { a: 'batch', icon: 'batch', title: 'Batch process', desc: 'One action on many files' },
       { a: 'properties', icon: 'info', title: 'Properties', desc: 'Title, author, keywords' },
     ],
   },
 ];
+
+/** The jobs people come for most, big and first. */
+const QUICK: HubAction[] = ['editText', 'sign', 'merge', 'toWord'];
 
 /** Left: working on a PDF. Right: converting into and out of PDF. */
 const COLUMNS = [
@@ -80,33 +88,27 @@ const COLUMNS = [
 ];
 
 export function ToolHub({ onAction, caps }: { onAction: (a: HubAction) => void; caps: { office: boolean; libreoffice: boolean } | null }) {
-  const [q, setQ] = useState('');
-  const needle = q.trim().toLowerCase();
-  const sections = SECTIONS.map((s) => ({
-    ...s,
-    tools: s.tools.filter((t) => !needle || `${t.title} ${t.desc} ${s.title}`.toLowerCase().includes(needle)),
-  })).filter((s) => s.tools.length);
+  const sections = SECTIONS;
+  const all = SECTIONS.flatMap((s) => s.tools);
+  const quick = QUICK.map((a) => all.find((t) => t.a === a)!).filter(Boolean);
   const officeMissing = caps && !caps.office && !caps.libreoffice;
 
   return (
     <div className="hub">
-      <label className="find-field">
-        <Icon name="search" size={16} />
-        <input
-          placeholder="Find a tool: merge, word, sign…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && sections[0]?.tools[0]) onAction(sections[0].tools[0].a);
-            if (e.key === 'Escape') setQ('');
-          }}
-          aria-label="Find a tool"
-        />
-        {needle && <span className="find-count">{sections.reduce((n, s) => n + s.tools.length, 0)} found · Enter opens the first</span>}
-      </label>
+      <section className="start" aria-label="Start here">
+        <h2 className="start-title">Start here</h2>
+        <div className="start-cards">
+          {quick.map((t, i) => (
+            <button key={t.a} className="start-card" style={{ ['--tilt' as any]: `${[-0.7, 0.5, -0.4, 0.8][i % 4]}deg` }} onClick={() => onAction(t.a)}>
+              <Icon name={t.icon} size={26} className="start-icon" />
+              <span className="start-name">{t.title}</span>
+              <span className="start-desc">{t.desc}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
-      {sections.length ? (
-        <div className="form-set">
+      <div className="form-set">
           {COLUMNS.map((col, ci) => (
             <div className="form-col" key={ci}>
               {sections
@@ -119,7 +121,10 @@ export function ToolHub({ onAction, caps }: { onAction: (a: HubAction) => void; 
                         <li key={t.a}>
                           <button className="form-line" onClick={() => onAction(t.a)}>
                             <Icon name={t.icon} size={18} className="form-line-icon" />
-                            <span className="form-line-name">{t.title}</span>
+                            <span className="form-line-name">
+                              {t.title}
+                              {t.isNew && <span className="new-stamp">New</span>}
+                            </span>
                             <span className="form-line-desc">{t.desc}</span>
                           </button>
                         </li>
@@ -129,10 +134,7 @@ export function ToolHub({ onAction, caps }: { onAction: (a: HubAction) => void; 
                 ))}
             </div>
           ))}
-        </div>
-      ) : (
-        <p className="empty-line">No tool matches “{q}”. Try “merge”, “word” or “sign”.</p>
-      )}
+      </div>
 
       {officeMissing && (
         <p className="note-line">Word, Excel and PowerPoint to PDF need Microsoft Office or the free LibreOffice on this PC.</p>

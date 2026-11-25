@@ -5,6 +5,9 @@ import { useEditor } from './EditorContext';
 import type { Annot, Rect, TextAnnot } from '../types';
 import { annotBounds, isBoxAnnot, normRect, uid } from '../lib/util';
 import { Icon } from './Icon';
+import { FieldPreview } from './FieldPreview';
+import { listPictures, pictureAt, pictureImage, whiteToTransparent, type PagePicture } from '../lib/pagePictures';
+import { kindInfo, newField } from '../lib/formFields';
 import { markStrokes } from '../lib/marks';
 
 interface Props {
@@ -33,7 +36,7 @@ interface Widget {
   maxLen?: number;
 }
 
-const DRAW_TOOLS = new Set(['ink', 'rect', 'ellipse', 'line', 'arrow', 'whiteout', 'redact', 'text', 'note', 'mark', 'place', 'hand']);const MARKUP_TOOLS = new Set(['highlight', 'underline', 'strike']);
+const DRAW_TOOLS = new Set(['ink', 'rect', 'ellipse', 'line', 'arrow', 'whiteout', 'redact', 'text', 'note', 'mark', 'place', 'hand', 'certsign', 'field', 'pickup']);const MARKUP_TOOLS = new Set(['highlight', 'underline', 'strike']);
 
 function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
   const ed = useEditor();
@@ -145,6 +148,10 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     const [x0, y0] = toPage(e.clientX, e.clientY);
     const id = uid();
 
+    if (tool === 'pickup') {
+      ed.pickPicture(index, x0, y0);
+      return;
+    }
     if (tool === 'text') {
       const a: TextAnnot = {
         id, page: index, type: 'text', x: x0, y: y0 - style.fontSize * 0.7, w: 110,
@@ -220,6 +227,8 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
         if (tool === 'move') current = { id, page: index, type: 'move', from: r, dx: 0, dy: 0, snapshot: '', texts: [] };
         else if (tool === 'whiteout') current = { id, page: index, type: 'whiteout', ...r, color: '#ffffff' };
         else if (tool === 'redact') current = { id, page: index, type: 'redact', ...r };
+        else if (tool === 'field') current = { id, page: index, type: 'field', kind: style.fieldKind, name: '', ...r, fontSize: 11 };
+        else if (tool === 'certsign') current = { id, page: index, type: 'rect', ...r, color: '#1d4fbf', width: 1.5, fill: null, dash: true };
         else if (tool === 'rect' || tool === 'ellipse')
           current = { id, page: index, type: tool, ...r, color: style.color, width: style.width, fill: style.fill, dash: style.dash };
       }
@@ -229,9 +238,27 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       setDraft(null);
+      if (!current && tool === 'field') {
+        // a plain click drops a field of the usual size for its kind
+        const info = kindInfo(style.fieldKind);
+        ed.addAnnot(newField(style.fieldKind, ed.annots, index, x0 - info.w / 2, y0 - info.h / 2, info.w, info.h, id), false);
+        ed.select(id);
+        return;
+      }
       if (!current) return;
       const b = annotBounds(current);
       if (current.type !== 'ink' && b.w < 3 && b.h < 3) return;
+      if (tool === 'field' && current.type === 'field') {
+        const f = newField(current.kind, ed.annots, index, current.x, current.y, current.w, current.h, current.id);
+        ed.addAnnot(f, false);
+        ed.select(f.id);
+        return;
+      }
+      if (tool === 'certsign') {
+        // not a markup: hand the drawn box to the signing step
+        if (b.w > 20 && b.h > 12) ed.signArea(index, { x: b.x, y: b.y, w: b.w, h: b.h });
+        return;
+      }
       if (current.type === 'move') {
         const sel = captureArea(current.from);
         ed.addAnnot({ ...current, ...sel });
@@ -345,7 +372,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     prevEditing.current = ed.editingId;
     if (!prev || prev === ed.editingId || !page) return;
     const a = ed.annots.find((x) => x.id === prev);
-    if (!a || a.type !== 'replace' || a.page !== index || a.pushedBy) return;
+    if (!a || a.type !== 'replace' || a.page !== index || a.pushedBy || a.srcAnnot) return; // imported text boxes stay listed (unchanged ones are skipped on save)
     // Clicked but not changed: drop the edit entirely so the original stays byte-for-byte as it was.
     if (a.origText !== undefined && a.text === a.origText) {
       ed.removeAnnot(a.id);
@@ -373,6 +400,27 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
   const onWrapPointerDown = (e: React.PointerEvent) => {
     if (MARKUP_TOOLS.has(tool)) markStart.current = toPage(e.clientX, e.clientY);
     if (tool === 'select' && e.target === e.currentTarget) ed.select(null);
+    // Select tool: clicking a picture on the page (a signature, a logo) selects it so it can be moved or deleted
+    if (tool === 'select' && page) {
+      const t = e.target as HTMLElement;
+      if (e.button === 0 && (t === e.currentTarget || t.classList.contains('page-canvas') || t.classList.contains('textLayer'))) {
+        const [px, py] = toPage(e.clientX, e.clientY);
+        void pickPictureHere(px, py);
+      }
+    }
+  };
+  const pics = useRef<PagePicture[] | null>(null);
+  const pickPictureHere = async (px: number, py: number) => {
+    if (!pics.current) pics.current = await listPictures(page!);
+    const hit = pictureAt(pics.current, px, py);
+    // a picture covering most of the page is the page itself (a scan): leave it alone
+    if (!hit || hit.w * hit.h > size.w * size.h * 0.7) return;
+    const have = ed.annots.find((a) => a.type === 'move' && a.picture && a.page === index && Math.abs(a.from.x - hit.x) < 1 && Math.abs(a.from.y - hit.y) < 1);
+    if (have) return ed.select(have.id);
+    const img = await pictureImage(page!, hit.name);
+    const id = uid();
+    ed.addAnnot({ id, page: index, type: 'move', from: { x: hit.x, y: hit.y, w: hit.w, h: hit.h }, dx: 0, dy: 0, snapshot: img ? (img.hasAlpha ? img.dataUrl : await whiteToTransparent(img.dataUrl)) : '', texts: [], picture: true });
+    ed.select(id);
   };
   const onWrapPointerUp = (e: React.PointerEvent) => {
     if (!MARKUP_TOOLS.has(tool)) return;
@@ -860,7 +908,8 @@ function HtmlAnnot({ a, draft, painted }: { a: Annot; draft?: boolean; painted?:
   const z = ed.zoom;
   const sel = ed.selectedId === a.id && !draft;
   const editing = ed.editingId === a.id;
-  const interactive = ed.tool === 'select' && !draft;
+  // in Edit text mode, existing text boxes (imported from the PDF) are clickable too
+  const interactive = !draft && (ed.tool === 'select' || (ed.tool === 'editText' && a.type === 'replace' && !!a.srcAnnot));
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
@@ -886,6 +935,12 @@ function HtmlAnnot({ a, draft, painted }: { a: Annot; draft?: boolean; painted?:
   const spin = canSpin ? (a as { rotation?: number }).rotation || 0 : 0;
   const onDown = (e: React.PointerEvent) => {
     if (!interactive || editing) return;
+    if (ed.tool === 'editText') {
+      e.stopPropagation();
+      ed.select(a.id);
+      ed.edit(a.id);
+      return;
+    }
     startMove(e, a, ed, z);
   };
   const onDbl = () => {
@@ -910,7 +965,8 @@ function HtmlAnnot({ a, draft, painted }: { a: Annot; draft?: boolean; painted?:
             : a.font === 'mono'
               ? '"Courier New", Courier, monospace'
               : undefined),
-        whiteSpace: a.type === 'replace' ? 'pre' : undefined,
+        whiteSpace: a.type === 'replace' || a.wrap === false ? 'pre' : undefined,
+        textAlign: a.align,
       };
       if (a.type === 'replace' && a.orig) st.background = 'transparent'; // only the original word is hidden (see cover below)
       if (a.type === 'replace' && a.baseline !== undefined && a.startX !== undefined) {
@@ -966,14 +1022,20 @@ function HtmlAnnot({ a, draft, painted }: { a: Annot; draft?: boolean; painted?:
     case 'move':
       body = (
         <>
-          {(a.dx || a.dy) && (
+          {(a.dx || a.dy) && (a.picture && a.snapshot ? (
+            // a picture: erase only its own ink at the old spot (a white box would also wipe lines and words around it)
+            <img src={a.snapshot} draggable={false} alt="" className="move-erase" style={{ left: -a.dx * z, top: -a.dy * z, width: a.from.w * z, height: a.from.h * z }} />
+          ) : (
             // the original spot, emptied (preview; on save the objects really move)
             <div className="orig-cover" style={{ left: -a.dx * z, top: -a.dy * z, width: a.from.w * z, height: a.from.h * z }} />
-          )}
+          ))}
           {a.snapshot && <img src={a.snapshot} draggable={false} alt="" className="move-snap" />}
           <div className="move-frame" />
         </>
       );
+      break;
+    case 'field':
+      body = <FieldPreview a={a} z={z} />;
       break;
     case 'whiteout':
       body = <div className="fill" style={{ background: a.color }} />;

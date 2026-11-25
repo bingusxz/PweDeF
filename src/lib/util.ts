@@ -30,6 +30,9 @@ export function baseName(name: string) {
   return name.replace(/\.pdf$/i, '');
 }
 
+/** Anything the standard PDF fonts (Latin-1 plus common typographic marks) can't encode. */
+export const NON_LATIN = /[^\n\t\x20-\x7E\xA0-\xFF€‘’‚“”„–—…]/;
+
 /** Map characters the standard PDF fonts can't encode to safe equivalents. */
 export function winAnsiSafe(s: string) {
   return s
@@ -96,6 +99,7 @@ export const isBoxAnnot = (a: Annot) =>
   a.type === 'replace' ||
   a.type === 'whiteout' ||
   a.type === 'redact' ||
+  a.type === 'field' ||
   a.type === 'image';
 
 export function downloadName(name: string, suffix: string, ext = 'pdf') {

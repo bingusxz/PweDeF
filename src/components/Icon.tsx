@@ -5,9 +5,19 @@ import {
   Redo2, ZoomIn, ZoomOut, Maximize, Files, Search, MessagesSquare, RotateCcw, RotateCw, Trash2, FileOutput,
   FilePlus2, Copy, Scissors, Combine, LayoutGrid, Layers, X, Check, ChevronLeft, ChevronRight, ChevronDown,
   ClipboardList, ScanText, Info, Droplets, Hash, Download, File, FileArchive, Sparkles, FileText, Sheet,
-  Presentation, Globe, Plus, Sun, Moon, SunMoon, Move, FileType, FileImage, FileSpreadsheet, Lock, ShieldOff, ArrowRightLeft, PanelsTopLeft,
+  Presentation, Globe, Plus, Sun, Moon, SunMoon, Move, FileType, FileImage, FileSpreadsheet, Lock, ShieldOff, ArrowRightLeft, PanelsTopLeft, CircleHelp, Ellipsis, AlignLeft, AlignCenter, AlignRight, AlignJustify, WrapText, FilePenLine, FormInput, ShieldCheck, FileCheck2, Minimize2, Layers2, Columns2,
   type LucideIcon,
 } from 'lucide-react';
+
+/** Redact: a few lines of text with one blacked out, like a censored document. */
+function RedactIcon({ size = 18, className, strokeWidth = 1.75 }: { size?: number; className?: string; strokeWidth?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M4 5h11M4 19h8M17 19h3M18 5h2" />
+      <rect x="3" y="9.5" width="18" height="5" rx="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 
 const MAP: Record<string, LucideIcon> = {
   open: FolderOpen,
@@ -25,7 +35,14 @@ const MAP: Record<string, LucideIcon> = {
   line: Minus,
   arrow: MoveUpRight,
   whiteout: Eraser,
-  redact: SquareSlash,
+  redact: RedactIcon as unknown as LucideIcon,
+  filePen: FilePenLine,
+  formInput: FormInput,
+  shield: ShieldCheck,
+  fileCheck: FileCheck2,
+  minimize: Minimize2,
+  layers2: Layers2,
+  columns: Columns2,
   note: MessageSquareText,
   sign: Signature,
   stamp: Stamp,
@@ -77,6 +94,13 @@ const MAP: Record<string, LucideIcon> = {
   lock: Lock,
   unlock: ShieldOff,
   convert: ArrowRightLeft,
+  help: CircleHelp,
+  more: Ellipsis,
+  alignL: AlignLeft,
+  alignC: AlignCenter,
+  alignR: AlignRight,
+  alignJ: AlignJustify,
+  wrap: WrapText,
   organize: PanelsTopLeft,
 };
 

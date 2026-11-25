@@ -20,6 +20,9 @@ export type Tool =
   | 'note'
   | 'mark'
   | 'move'
+  | 'certsign' // drawing the box for a visible digital signature
+  | 'field' // form designer: drawing a fillable field
+  | 'pickup' // click a picture already on the page (e.g. a signature) to lift it out
   | 'place'; // placing an image (signature / stamp / picture)
 
 export interface Rect {
@@ -67,6 +70,12 @@ export type TextAnnot = Base &
     orig?: Rect;
     /** degrees clockwise around the box centre (new text boxes only) */
     rotation?: number;
+    /** a text box that already existed in the PDF as an annotation (e.g. added by PDFgear): its object number, removed on save once edited */
+    srcAnnot?: { num: number; gen: number };
+    /** alignment inside the box; 'justify' spreads every line but the last across the width */
+    align?: 'left' | 'center' | 'right' | 'justify';
+    /** false = no wrapping: each line stays as typed. Default true for new text boxes. */
+    wrap?: boolean;
     /** the text as it was in the PDF; an edit left unchanged is discarded so the original stays untouched */
     origText?: string;
     /** width of the original run (page units): used to keep the document's own word spacing (justified lines) */
@@ -102,9 +111,31 @@ export interface MovedText {
   color: string;
 }
 /** Move tool: everything fully inside `from` is moved by (dx, dy) on save. */
-export type MoveAnnot = Base & { type: 'move'; from: Rect; dx: number; dy: number; snapshot: string; texts: MovedText[] };
+export type MoveAnnot = Base & { type: 'move'; from: Rect; dx: number; dy: number; snapshot: string; texts: MovedText[]; /** made by clicking a picture with the Select tool: Delete moves it off the page */ picture?: boolean };
 /** Fill & Sign style marks for boxes that aren't real form fields. x,y is the centre. */
 export type MarkAnnot = Base & { type: 'mark'; kind: 'check' | 'cross' | 'dot'; x: number; y: number; size: number; color: string };
+
+/** A fillable form field designed in the editor; becomes a real AcroForm field when the file is saved. */
+export type FieldKind = 'text' | 'checkbox' | 'radio' | 'dropdown' | 'list' | 'signature';
+export type FieldAnnot = Base &
+  Rect & {
+    type: 'field';
+    kind: FieldKind;
+    /** field name (for radio buttons: the group name) */
+    name: string;
+    tooltip?: string;
+    required?: boolean;
+    readOnly?: boolean;
+    multiline?: boolean;
+    /** starting text, or the starting choice of a dropdown / list */
+    value?: string;
+    options?: string[];
+    fontSize: number;
+    maxLen?: number;
+    /** radio button: the value this button stands for */
+    exportValue?: string;
+    checked?: boolean;
+  };
 
 export type Annot =
   | MarkupAnnot
@@ -112,6 +143,7 @@ export type Annot =
   | ShapeAnnot
   | LineAnnot
   | TextAnnot
+  | FieldAnnot
   | WhiteoutAnnot
   | RedactAnnot
   | ImageAnnot
@@ -156,4 +188,6 @@ export interface StyleState {
   family: string;
   bold: boolean;
   italic: boolean;
+  /** which kind of form field the Form designer draws next */
+  fieldKind: FieldKind;
 }

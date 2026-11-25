@@ -74,16 +74,89 @@ export async function merge(files: Uint8Array[]) {
   return save(out);
 }
 
-/** Split into chunks of N pages, or at explicit ranges like "1-3, 4, 5-9". */
-export async function split(bytes: Uint8Array, spec: { everyN?: number; ranges?: string }) {
-  const src = await load(bytes);
-  const n = src.getPageCount();
-  let groups: number[][] = [];
-  if (spec.ranges) groups = parseRanges(spec.ranges, n);
-  else {
-    const k = Math.max(1, spec.everyN || 1);
-    for (let i = 0; i < n; i += k) groups.push(Array.from({ length: Math.min(k, n - i) }, (_, j) => i + j));
+/** One piece of a merge: which pages of a file (all when empty) and how much to turn them. */
+export interface MergePart {
+  bytes: Uint8Array;
+  /** zero-based page numbers to take, in this order; empty or missing = every page */
+  pages?: number[];
+  /** extra clockwise rotation for every page taken from this file (0, 90, 180, 270) */
+  rotate?: number;
+}
+
+/** Merge with per-file page selection and rotation. */
+export async function mergeParts(parts: MergePart[]) {
+  const out = await PDFDocument.create();
+  for (const p of parts) {
+    const src = await load(p.bytes);
+    const idx = p.pages?.length ? p.pages.filter((i) => i >= 0 && i < src.getPageCount()) : src.getPageIndices();
+    for (const page of await out.copyPages(src, idx)) {
+      if (p.rotate) page.setRotation(degrees((((page.getRotation().angle + p.rotate) % 360) + 360) % 360));
+      out.addPage(page);
+    }
   }
+  if (!out.getPageCount()) throw new Error('Nothing to merge: every file had an empty page selection.');
+  return save(out);
+}
+
+export interface SplitSpec {
+  everyN?: number;
+  ranges?: string;
+  /** zero-based first page of each section (e.g. from the bookmarks); a section runs to the next start */
+  starts?: number[];
+  /** keep every output file under about this many megabytes */
+  maxMB?: number;
+  /** put all the chosen ranges in ONE file instead of one file per range */
+  single?: boolean;
+}
+
+/** Page groups for a split spec, without building any files. */
+export function splitGroups(n: number, spec: SplitSpec): number[][] {
+  if (spec.starts?.length) {
+    const s = [...new Set([0, ...spec.starts.filter((x) => x > 0 && x < n)])].sort((a, b) => a - b);
+    return s.map((a, i) => {
+      const b = i + 1 < s.length ? s[i + 1] : n;
+      return Array.from({ length: b - a }, (_, k) => a + k);
+    });
+  }
+  if (spec.ranges) {
+    const groups = parseRanges(spec.ranges, n).filter((g) => g.length);
+    return spec.single ? [groups.flat()] : groups;
+  }
+  const k = Math.max(1, spec.everyN || 1);
+  const groups: number[][] = [];
+  for (let i = 0; i < n; i += k) groups.push(Array.from({ length: Math.min(k, n - i) }, (_, j) => i + j));
+  return groups;
+}
+
+/**
+ * Cut into files that stay under `maxBytes`. Page sizes aren't known up front (fonts and images are shared),
+ * so each file is measured for real and shortened until it fits. A single page bigger than the limit goes alone.
+ */
+export async function splitBySize(bytes: Uint8Array, maxBytes: number, onProgress?: (frac: number) => void): Promise<{ files: Uint8Array[]; tooBig: number }> {
+  const n = (await load(bytes)).getPageCount();
+  const files: Uint8Array[] = [];
+  let tooBig = 0;
+  const avg = Math.max(1, bytes.length / n);
+  let start = 0;
+  while (start < n) {
+    let k = Math.max(1, Math.min(n - start, Math.floor(maxBytes / avg)));
+    let out = await extractPages(bytes, Array.from({ length: k }, (_, j) => start + j));
+    for (let tries = 0; out.length > maxBytes && k > 1 && tries < 12; tries++) {
+      k = Math.max(1, Math.floor(k * Math.min(0.9, (maxBytes / out.length) * 0.97)));
+      out = await extractPages(bytes, Array.from({ length: k }, (_, j) => start + j));
+    }
+    if (out.length > maxBytes) tooBig++;
+    files.push(out);
+    start += k;
+    onProgress?.(start / n);
+  }
+  return { files, tooBig };
+}
+
+/** Split into chunks of N pages, at explicit ranges like "1-3, 4, 5-9", or at section starts. */
+export async function split(bytes: Uint8Array, spec: SplitSpec) {
+  const src = await load(bytes);
+  const groups = splitGroups(src.getPageCount(), spec);
   const outs: Uint8Array[] = [];
   for (const g of groups) outs.push(await extractPages(bytes, g));
   return outs;
@@ -149,6 +222,8 @@ export async function watermark(bytes: Uint8Array, o: WatermarkOpts) {
     if (o.fontBytes) {
       doc.registerFontkit((await import('@pdf-lib/fontkit')).default);
       font = await doc.embedFont(o.fontBytes, { subset: true });
+      const have = new Set(font.getCharacterSet());
+      text = [...text].map((ch) => (ch === '\n' || have.has(ch.codePointAt(0)!) ? ch : '?')).join('');
     } else {
       font = await doc.embedFont(o.italic ? (o.bold ? StandardFonts.HelveticaBoldOblique : StandardFonts.HelveticaOblique) : o.bold === false ? StandardFonts.Helvetica : StandardFonts.HelveticaBold);
       text = winAnsiSafe(text);
@@ -224,20 +299,27 @@ export interface NumberOpts {
   position: 'bottom-center' | 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'top-center';
   size: number;
   start: number;
+  /** an installed font that covers the characters in `format` (see resolveNumbers) */
+  fontBytes?: Uint8Array | null;
 }
 
 export async function pageNumbers(bytes: Uint8Array, o: NumberOpts) {
   const doc = await load(bytes);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  let font: Awaited<ReturnType<PDFDocument['embedFont']>>;
+  let have: Set<number> | null = null;
+  if (o.fontBytes) {
+    doc.registerFontkit((await import('@pdf-lib/fontkit')).default);
+    font = await doc.embedFont(o.fontBytes, { subset: true });
+    have = new Set(font.getCharacterSet());
+  } else font = await doc.embedFont(StandardFonts.Helvetica);
   const pages = doc.getPages();
   pages.forEach((page, i) => {
     const n = o.start + i;
-    const label = winAnsiSafe(
-      o.format
-        .replace(/\{n:(\d+)\}/g, (_, d) => String(n).padStart(+d, '0'))
-        .replace(/\{n\}/g, String(n))
-        .replace(/\{total\}/g, String(pages.length + o.start - 1)),
-    );
+    const raw = o.format
+      .replace(/\{n:(\d+)\}/g, (_, d) => String(n).padStart(+d, '0'))
+      .replace(/\{n\}/g, String(n))
+      .replace(/\{total\}/g, String(pages.length + o.start - 1));
+    const label = have ? [...raw].map((ch) => (have!.has(ch.codePointAt(0)!) ? ch : '?')).join('') : winAnsiSafe(raw);
     const { width, height } = page.getSize();
     const tw = font.widthOfTextAtSize(label, o.size);
     const m = 28;

@@ -1,6 +1,6 @@
 // PweDeF — Electron main process.
 // Owns windows, native dialogs, file system access, and auto-update.
-const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, Menu, nativeTheme } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, Menu, nativeTheme, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { pathToFileURL } = require('node:url');
@@ -58,12 +58,26 @@ const CSP = [
 nativeTheme.themeSource = 'light';
 const chrome = () => ({ color: '#f2e4cf', symbolColor: '#401e41', bg: '#e7d8bf' });
 
+/** Keeps the window inside the usable screen area (not under the taskbar or off the bottom of a small display). */
+function fitToScreen() {
+  if (!win || win.isDestroyed() || win.isMaximized() || win.isFullScreen() || win.isMinimized()) return;
+  const b = win.getBounds();
+  const wa = screen.getDisplayMatching(b).workArea;
+  const width = Math.min(b.width, wa.width);
+  const height = Math.min(b.height, wa.height);
+  const x = Math.min(Math.max(b.x, wa.x), wa.x + wa.width - width);
+  const y = Math.min(Math.max(b.y, wa.y), wa.y + wa.height - height);
+  if (x !== b.x || y !== b.y || width !== b.width || height !== b.height) win.setBounds({ x, y, width, height });
+}
+
 function createWindow() {
+  // size to the screen: a 1366x768 laptop has under 730px of usable height
+  const wa = screen.getPrimaryDisplay().workAreaSize;
   win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
+    width: Math.min(1400, wa.width),
+    height: Math.min(900, wa.height),
+    minWidth: Math.min(900, wa.width),
+    minHeight: Math.min(600, wa.height),
     backgroundColor: chrome().bg,
     title: 'PweDeF',
     icon: path.join(__dirname, 'icon.png'),
@@ -85,6 +99,11 @@ function createWindow() {
   win.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith('app://') && !(DEV_URL && url.startsWith(DEV_URL))) e.preventDefault();
   });
+
+  win.once('ready-to-show', fitToScreen);
+  win.on('restore', fitToScreen);
+  win.on('unmaximize', fitToScreen);
+  win.on('show', fitToScreen);
 
   win.on('close', (e) => {
     if (win.__allowClose) return;

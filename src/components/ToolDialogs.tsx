@@ -2,20 +2,32 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from './Modal';
 import type { NumberOpts, WatermarkOpts, WatermarkPosition } from '../lib/ops';
-import { extractPages, getMetadata, watermark } from '../lib/ops';
+import { extractPages, getMetadata, watermark, type SplitSpec } from '../lib/ops';
+import { NON_LATIN } from '../lib/util';
+import { BUNDLED_LANGS, type OcrOptions } from '../lib/ocr';
+import { CompareDialog } from './CompareDialog';
+import { createSelfSigned, loadPfx, verifySignatures, type Credentials, type SigReport } from '../lib/digitalSign';
+import type { WordMode } from '../lib/toWord';
+import type { PptMode } from '../lib/toPowerPoint';
+import { OPTIMIZE_PRESETS, type OptimizeOptions, type OptimizePreset } from '../lib/optimize';
 import { loadPdf, renderToCanvas } from '../lib/pdf';
 import { IMAGE_FILTERS } from '../lib/convert';
 
-export type ToolKind = 'watermark' | 'numbers' | 'split' | 'properties' | 'ocr' | 'exportImages' | 'toWord';
+/** What the Split dialog asks for. Bookmarks are resolved by the editor, which has the open document. */
+export type SplitRequest = SplitSpec & { bookmarks?: boolean };
+export type ToolKind = 'watermark' | 'numbers' | 'split' | 'properties' | 'ocr' | 'exportImages' | 'toWord' | 'toPpt' | 'optimize' | 'certSign' | 'sigCheck' | 'compare';
 
 export interface ToolHandlers {
   watermark(o: WatermarkOpts): void;
   numbers(o: NumberOpts): void;
-  split(spec: { everyN?: number; ranges?: string }): void;
+  split(spec: SplitRequest): void;
   properties(meta: { title: string; author: string; subject: string; keywords: string }): void;
-  ocr(o: { lang: string; scope: 'all' | 'current' }): void;
+  ocr(o: OcrRequest): void;
   exportImages(o: { format: 'png' | 'jpeg'; dpi: number }): void;
-  toWord(mode: 'text' | 'exact'): void;
+  toWord(mode: WordMode): void;
+  toPpt(mode: PptMode): void;
+  certSign(o: CertSignRequest): void;
+  optimize(o: OptimizeOptions): void;
 }
 
 export function ToolDialog({
@@ -46,28 +58,225 @@ export function ToolDialog({
       return <ExportDialog onClose={onClose} onRun={h.exportImages} />;
     case 'toWord':
       return <WordDialog onClose={onClose} onRun={h.toWord} />;
+    case 'toPpt':
+      return <PptDialog onClose={onClose} onRun={h.toPpt} />;
+    case 'certSign':
+      return <CertSignDialog onClose={onClose} onRun={h.certSign} />;
+    case 'sigCheck':
+      return <SigCheckDialog onClose={onClose} bytes={bytes} />;
+    case 'compare':
+      return <CompareDialog onClose={onClose} initialA={{ name: 'This document', data: bytes }} />;
+    case 'optimize':
+      return <OptimizeDialog onClose={onClose} onRun={h.optimize} size={bytes.length} />;
   }
 }
 
-function WordDialog({ onClose, onRun }: { onClose: () => void; onRun: (m: 'text' | 'exact') => void }) {
-  const [mode, setMode] = useState<'text' | 'exact'>('text');
+function OptimizeDialog({ onClose, onRun, size }: { onClose: () => void; onRun: (o: OptimizeOptions) => void; size: number }) {
+  const [preset, setPreset] = useState<OptimizePreset>('balanced');
+  const [stripMetadata, setStripMetadata] = useState(false);
+  const [stripAttachments, setStripAttachments] = useState(false);
+  const mb = size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`;
+  return (
+    <Modal
+      title="Optimize PDF"
+      onClose={onClose}
+      footer={<Foot onClose={onClose} onRun={() => onRun({ preset, stripMetadata, stripAttachments })} label="Optimize" />}
+    >
+      <p className="muted">Current size: {mb}. Pictures are scaled down and re-compressed, and unused data is removed. Text stays text, so search and copy keep working.</p>
+      {(Object.keys(OPTIMIZE_PRESETS) as OptimizePreset[]).map((k) => (
+        <label className="choice" key={k}>
+          <input type="radio" checked={preset === k} onChange={() => setPreset(k)} />
+          <span>
+            <b>{OPTIMIZE_PRESETS[k].name}</b>
+            <span className="muted"> — {OPTIMIZE_PRESETS[k].hint}</span>
+          </span>
+        </label>
+      ))}
+      <label className="check">
+        <input type="checkbox" checked={stripMetadata} onChange={(e) => setStripMetadata(e.target.checked)} /> Remove document info (title, author, keywords)
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={stripAttachments} onChange={(e) => setStripAttachments(e.target.checked)} /> Remove attached files
+      </label>
+      <p className="hint">If the file can't be made smaller, it is left as it is.</p>
+    </Modal>
+  );
+}
+
+export interface CertSignRequest {
+  cred: Credentials;
+  reason: string;
+  location: string;
+  contact: string;
+  visible: boolean;
+}
+
+function CertSignDialog({ onClose, onRun }: { onClose: () => void; onRun: (o: CertSignRequest) => void }) {
+  const [file, setFile] = useState<{ name: string; data: Uint8Array } | null>(null);
+  const [password, setPassword] = useState('');
+  const [reason, setReason] = useState('I approve this document');
+  const [location, setLocation] = useState('');
+  const [contact, setContact] = useState('');
+  const [visible, setVisible] = useState(true);
+  const [err, setErr] = useState('');
+  const [make, setMake] = useState(false);
+  const [mk, setMk] = useState({ name: '', org: '', pw: '' });
+  const [working, setWorking] = useState(false);
+
+  const choose = async () => {
+    const f = await window.acro.openPdfs({ title: 'Choose your certificate file', filters: [{ name: 'Certificate', extensions: ['pfx', 'p12'] }] });
+    if (f[0]) {
+      setFile({ name: f[0].name, data: f[0].data });
+      setErr('');
+    }
+  };
+  const create = async () => {
+    if (!mk.name.trim() || mk.pw.length < 4) return setErr('Enter your name and a password of at least 4 characters.');
+    setWorking(true);
+    setErr('');
+    await new Promise((r) => setTimeout(r, 50)); // let the "working" state paint: making the key takes a few seconds
+    try {
+      const pfx = createSelfSigned({ name: mk.name.trim(), org: mk.org.trim() || undefined, password: mk.pw });
+      const saved = await window.acro.saveFile(`${mk.name.trim().replace(/[^\w -]+/g, '')}-certificate.pfx`, pfx, [{ name: 'Certificate', extensions: ['pfx'] }]);
+      if (saved) {
+        setFile({ name: saved.split(/[\\/]/).pop() || 'certificate.pfx', data: pfx });
+        setPassword(mk.pw);
+        setMake(false);
+      }
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+    } finally {
+      setWorking(false);
+    }
+  };
+  const go = () => {
+    if (!file) return setErr('Choose your certificate file first.');
+    try {
+      onRun({ cred: loadPfx(file.data, password), reason: reason.trim(), location: location.trim(), contact: contact.trim(), visible });
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+    }
+  };
+  return (
+    <Modal title="Sign with a certificate" onClose={onClose} width={560} footer={<Foot onClose={onClose} onRun={go} label={visible ? 'Draw signature box' : 'Sign & save a copy'} />}>
+      <p className="muted">
+        A digital signature proves who signed and that the file hasn't changed since. It's saved as a <b>new copy</b>. Sign last: any later edit breaks it.
+      </p>
+      <div className="form-grid">
+        <label>Certificate</label>
+        <span className="cert-pick">
+          <button onClick={choose}>{file ? 'Change…' : 'Choose .pfx file…'}</button> <span className="muted">{file?.name || 'no file chosen'}</span>
+        </span>
+        <label>Password</label>
+        <input type="password" value={password} autoComplete="off" onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} />
+        <label>Reason</label>
+        <input value={reason} onChange={(e) => setReason(e.target.value)} />
+        <label>Location</label>
+        <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="optional" />
+        <label>Contact</label>
+        <input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="optional" />
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} /> Show a signature box on the page (you draw where)
+      </label>
+      {err && <p className="merge-err">{err}</p>}
+      <p className="hint">
+        No certificate?{' '}
+        <button className="link-btn" onClick={() => setMake((v) => !v)}>
+          Make your own
+        </button>
+        . Readers like Adobe will say "identity not verified" for these, which is normal. A company certificate from a recognised authority shows as trusted.
+      </p>
+      {make && (
+        <div className="form-grid">
+          <label>Your name</label>
+          <input value={mk.name} onChange={(e) => setMk({ ...mk, name: e.target.value })} />
+          <label>Company</label>
+          <input value={mk.org} onChange={(e) => setMk({ ...mk, org: e.target.value })} placeholder="optional" />
+          <label>New password</label>
+          <input type="password" value={mk.pw} autoComplete="new-password" onChange={(e) => setMk({ ...mk, pw: e.target.value })} />
+          <span />
+          <button disabled={working} onClick={create}>
+            {working ? 'Making your certificate…' : 'Create & save .pfx'}
+          </button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function SigCheckDialog({ onClose, bytes }: { onClose: () => void; bytes: Uint8Array }) {
+  const [reports, setReports] = useState<SigReport[] | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    verifySignatures(bytes).then(setReports).catch((e) => setErr(String(e?.message || e)));
+  }, [bytes]);
+  const label = { valid: 'Valid', modified: 'Changed after signing', invalid: 'Not valid' } as const;
+  return (
+    <Modal title="Digital signatures" onClose={onClose} width={560}>
+      {err && <p className="merge-err">{err}</p>}
+      {!reports && !err && <p className="muted">Checking…</p>}
+      {reports && !reports.length && <p className="muted">This PDF has no digital signatures.</p>}
+      {reports?.map((r, i) => (
+        <div key={i} className={`sig-card ${r.status}`}>
+          <b>
+            {label[r.status]} · {r.signer}
+          </b>
+          <small>
+            {r.signedAt ? `Signed ${r.signedAt.toLocaleString()}` : 'Signing date unknown'}
+            {r.reason ? ` · ${r.reason}` : ''}
+            {r.location ? ` · ${r.location}` : ''}
+          </small>
+          {r.issuer && !r.selfSigned && <small>Issued by {r.issuer}</small>}
+          {r.notes.map((n) => (
+            <small key={n}>{n}</small>
+          ))}
+        </div>
+      ))}
+    </Modal>
+  );
+}
+
+function WordDialog({ onClose, onRun }: { onClose: () => void; onRun: (m: WordMode) => void }) {
+  const [mode, setMode] = useState<WordMode>('flow');
+  const opt = (m: WordMode, title: string, text: string) => (
+    <label className="choice">
+      <input type="radio" checked={mode === m} onChange={() => setMode(m)} />
+      <span>
+        <b>{title}</b>
+        <span className="muted"> — {text}</span>
+      </span>
+    </label>
+  );
   return (
     <Modal title="PDF to Word" onClose={onClose} footer={<Foot onClose={onClose} onRun={() => onRun(mode)} label="Convert & save .docx" />}>
+      {opt('flow', 'Flowing text', 'real paragraphs, fonts, tables and pictures in reading order. Best for editing and reusing the content.')}
+      {opt('layout', 'Retain page layout', 'looks like the PDF page. Every line is an editable text frame over the page background.')}
+      {opt('exact', 'Exact picture', 'each page placed as an image. Identical look, text is not editable.')}
+      <p className="muted small-text">Scanned PDF? Run OCR first so there's text to convert.</p>
+    </Modal>
+  );
+}
+
+function PptDialog({ onClose, onRun }: { onClose: () => void; onRun: (m: PptMode) => void }) {
+  const [mode, setMode] = useState<PptMode>('editable');
+  return (
+    <Modal title="PDF to PowerPoint" onClose={onClose} footer={<Foot onClose={onClose} onRun={() => onRun(mode)} label="Convert & save .pptx" />}>
       <label className="choice">
-        <input type="radio" checked={mode === 'text'} onChange={() => setMode('text')} />
+        <input type="radio" checked={mode === 'editable'} onChange={() => setMode('editable')} />
         <span>
-          <b>Editable text</b>
-          <span className="muted"> — paragraphs, sizes and bold are kept so you can edit in Word. Layout is simplified.</span>
+          <b>Editable slides</b>
+          <span className="muted"> — one slide per page with the page's pictures and lines as the background and the words as real text boxes you can edit.</span>
         </span>
       </label>
       <label className="choice">
         <input type="radio" checked={mode === 'exact'} onChange={() => setMode('exact')} />
         <span>
-          <b>Exact look</b>
-          <span className="muted"> — each page placed as an image. Looks identical, but text isn't editable.</span>
+          <b>Exact picture</b>
+          <span className="muted"> — each page placed as one image. Identical look, nothing is editable.</span>
         </span>
       </label>
-      <p className="muted small-text">Scanned PDF? Run OCR first so there's text to convert.</p>
+      <p className="muted small-text">Pages whose text can't be separated safely stay as pictures automatically.</p>
     </Modal>
   );
 }
@@ -75,7 +284,6 @@ function WordDialog({ onClose, onRun }: { onClose: () => void; onRun: (m: 'text'
 function Foot({ onClose, onRun, label }: { onClose: () => void; onRun: () => void; label: string }) {
   return (
     <>
-      <button onClick={onClose}>Cancel</button>
       <button className="primary" onClick={onRun}>
         {label}
       </button>
@@ -95,9 +303,28 @@ const WM_COLORS = ['#c62828', '#1c2340', '#7a7f93', '#1d4fbf', '#1f7a3b'];
 
 /** Loads the installed font for a text watermark (call before ops.watermark). */
 export async function resolveWatermark(o: WatermarkOpts): Promise<WatermarkOpts> {
-  if (o.kind === 'image' || !o.family) return o;
-  const f = await window.acro.loadFont({ family: o.family, bold: o.bold ?? true, italic: !!o.italic });
-  return { ...o, fontBytes: f?.data ?? null };
+  if (o.kind === 'image') return o;
+  const wide = NON_LATIN.test(o.text || '');
+  if (!o.family && !wide) return o;
+  // chosen family first; for ₱, Cyrillic, CJK… fall back to wide-coverage fonts so the text can be drawn
+  for (const family of [o.family, ...(wide ? WIDE_FONTS : [])]) {
+    if (!family) continue;
+    const f = await window.acro.loadFont({ family, bold: o.bold ?? true, italic: !!o.italic });
+    if (f?.data) return { ...o, fontBytes: f.data };
+  }
+  return { ...o, fontBytes: null };
+}
+
+const WIDE_FONTS = ['Segoe UI', 'Arial', 'Nirmala UI', 'Microsoft YaHei', 'Yu Gothic', 'Malgun Gothic'];
+
+/** Page numbers / Bates text with ₱ or non-Latin characters need an installed font that has them. */
+export async function resolveNumbers(o: NumberOpts): Promise<NumberOpts> {
+  if (!NON_LATIN.test(o.format)) return o;
+  for (const family of WIDE_FONTS) {
+    const f = await window.acro.loadFont({ family, bold: false, italic: false });
+    if (f?.data) return { ...o, fontBytes: f.data };
+  }
+  return o;
 }
 
 export function WatermarkFields({ o, set, fonts, batch }: { o: WatermarkOpts; set: (o: WatermarkOpts) => void; fonts?: string[]; batch?: boolean }) {
@@ -318,16 +545,21 @@ function NumbersDialog({ onClose, onRun }: { onClose: () => void; onRun: (o: Num
   );
 }
 
-function SplitDialog({ onClose, onRun, numPages }: { onClose: () => void; onRun: (s: { everyN?: number; ranges?: string }) => void; numPages: number }) {
-  const [mode, setMode] = useState<'n' | 'ranges'>('n');
+function SplitDialog({ onClose, onRun, numPages }: { onClose: () => void; onRun: (s: SplitRequest) => void; numPages: number }) {
+  type Mode = 'n' | 'ranges' | 'size' | 'bookmarks';
+  const [mode, setMode] = useState<Mode>('n');
   const [n, setN] = useState(1);
   const [ranges, setRanges] = useState(`1-${Math.ceil(numPages / 2)}, ${Math.ceil(numPages / 2) + 1}-end`);
+  const [single, setSingle] = useState(false);
+  const [mb, setMb] = useState(5);
+  const go = () => {
+    if (mode === 'n') onRun({ everyN: Math.max(1, n) });
+    else if (mode === 'ranges') onRun({ ranges, single });
+    else if (mode === 'size') onRun({ maxMB: Math.max(0.1, mb) });
+    else onRun({ bookmarks: true });
+  };
   return (
-    <Modal
-      title="Split PDF"
-      onClose={onClose}
-      footer={<Foot onClose={onClose} onRun={() => onRun(mode === 'n' ? { everyN: n } : { ranges })} label="Split & choose folder" />}
-    >
+    <Modal title="Split PDF" onClose={onClose} footer={<Foot onClose={onClose} onRun={go} label="Split & choose folder" />}>
       <div className="seg">
         <button className={mode === 'n' ? 'on' : ''} onClick={() => setMode('n')}>
           Every N pages
@@ -335,20 +567,50 @@ function SplitDialog({ onClose, onRun, numPages }: { onClose: () => void; onRun:
         <button className={mode === 'ranges' ? 'on' : ''} onClick={() => setMode('ranges')}>
           Page ranges
         </button>
+        <button className={mode === 'size' ? 'on' : ''} onClick={() => setMode('size')}>
+          By file size
+        </button>
+        <button className={mode === 'bookmarks' ? 'on' : ''} onClick={() => setMode('bookmarks')}>
+          By bookmarks
+        </button>
       </div>
-      {mode === 'n' ? (
+      {mode === 'n' && (
         <div className="form-grid">
           <label>Pages per file</label>
           <input type="number" min={1} max={numPages} value={n} onChange={(e) => setN(+e.target.value)} />
           <span />
-          <div className="hint">Creates {Math.ceil(numPages / Math.max(1, n))} files.</div>
+          <div className="hint">
+            Creates {Math.ceil(numPages / Math.max(1, n))} files.{' '}
+            <button className="link-btn" onClick={() => setN(1)}>
+              One file per page
+            </button>
+          </div>
         </div>
-      ) : (
+      )}
+      {mode === 'ranges' && (
         <div className="form-grid">
           <label>Ranges</label>
           <input value={ranges} onChange={(e) => setRanges(e.target.value)} />
           <span />
-          <div className="hint">One output file per range, e.g. "1-3, 4, 5-end".</div>
+          <div className="hint">{single ? 'All these pages go into one new PDF, in this order.' : 'One output file per range, e.g. "1-3, 4, 5-end".'}</div>
+          <span />
+          <label className="check">
+            <input type="checkbox" checked={single} onChange={(e) => setSingle(e.target.checked)} /> Put all ranges in one file (extract pages)
+          </label>
+        </div>
+      )}
+      {mode === 'size' && (
+        <div className="form-grid">
+          <label>Largest file (MB)</label>
+          <input type="number" min={0.1} step={0.5} value={mb} onChange={(e) => setMb(+e.target.value)} />
+          <span />
+          <div className="hint">Each file is measured and kept under this size, handy for email limits. A single page bigger than the limit gets its own file.</div>
+        </div>
+      )}
+      {mode === 'bookmarks' && (
+        <div className="form-grid">
+          <span />
+          <div className="hint">Starts a new file at each top-level bookmark, so a long PDF made of sections splits where its table of contents does.</div>
         </div>
       )}
     </Modal>
@@ -387,14 +649,20 @@ function FragmentField({ label, value, onChange }: { label: string; value: strin
   );
 }
 
-function OcrDialog({ onClose, onRun }: { onClose: () => void; onRun: (o: { lang: string; scope: 'all' | 'current' }) => void }) {
+type OcrRequest = Omit<OcrOptions, never> & { scope: 'all' | 'current' };
+
+function OcrDialog({ onClose, onRun }: { onClose: () => void; onRun: (o: OcrRequest) => void }) {
   const [lang, setLang] = useState('eng');
   const [scope, setScope] = useState<'all' | 'current'>('all');
+  const [quality, setQuality] = useState<'fast' | 'accurate'>('accurate');
+  const [deskew, setDeskew] = useState(true);
+  const [skipTextPages, setSkip] = useState(true);
+  const offline = lang.split('+').every((l) => BUNDLED_LANGS.includes(l));
   return (
-    <Modal title="Recognize text (OCR)" onClose={onClose} footer={<Foot onClose={onClose} onRun={() => onRun({ lang, scope })} label="Run OCR" />}>
+    <Modal title="Recognize text (OCR)" onClose={onClose} footer={<Foot onClose={onClose} onRun={() => onRun({ lang, scope, quality, deskew, skipTextPages })} label="Run OCR" />}>
       <p className="muted">
-        Makes scanned pages searchable and selectable by adding an invisible text layer. The page image stays untouched. The
-        first run downloads the language model (internet needed once).
+        Makes scanned pages searchable and selectable by adding an invisible text layer. The page picture stays untouched.{' '}
+        {offline ? 'English and Filipino work fully offline.' : 'This language is downloaded the first time (internet needed once).'}
       </p>
       <div className="form-grid">
         <label>Language</label>
@@ -411,7 +679,18 @@ function OcrDialog({ onClose, onRun }: { onClose: () => void; onRun: (o: { lang:
           <option value="all">All pages</option>
           <option value="current">Current page</option>
         </select>
+        <label>Quality</label>
+        <select value={quality} onChange={(e) => setQuality(e.target.value as 'fast' | 'accurate')}>
+          <option value="accurate">Accurate (300 dpi, slower, best for small print)</option>
+          <option value="fast">Fast (200 dpi)</option>
+        </select>
       </div>
+      <label className="check">
+        <input type="checkbox" checked={deskew} onChange={(e) => setDeskew(e.target.checked)} /> Straighten crooked scans first
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={skipTextPages} onChange={(e) => setSkip(e.target.checked)} /> Skip pages that already have real text
+      </label>
     </Modal>
   );
 }

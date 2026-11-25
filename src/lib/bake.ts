@@ -1,9 +1,11 @@
 import { embeddedFace } from './embeddedFace';
+import { addField } from './formFields';
 // Writes pending annotations + form values into the PDF bytes using pdf-lib.
 import {
   PDFDocument,
   PDFFont,
   PDFPage,
+  PDFRef,
   StandardFonts,
   rgb,
   degrees,
@@ -31,7 +33,7 @@ import type { PageViewport } from './pdf';
 import type { Annot, FormValues, MoveAnnot, TextAnnot } from '../types';
 import { moveGraphicsInRect, removeTextInRects } from './textremove';
 import { markStrokes } from './marks';
-import { dataUrlToBytes, hexToRgb01, normRect, winAnsiSafe } from './util';
+import { NON_LATIN, dataUrlToBytes, hexToRgb01, normRect, winAnsiSafe } from './util';
 
 export interface BakeOptions {
   flattenForms?: boolean;
@@ -139,6 +141,8 @@ export async function bake(
     }
   }
 
+  // text boxes imported from the PDF that were not touched are left exactly as they were
+  annots = annots.filter((a) => !(a.type === 'replace' && a.srcAnnot && a.orig && a.text === a.origText && Math.abs(a.x - a.orig.x) < 0.01 && Math.abs(a.y - a.orig.y) < 0.01));
   const byPage = new Map<number, Annot[]>();
   for (const a of annots) {
     if (!byPage.has(a.page)) byPage.set(a.page, []);
@@ -148,6 +152,14 @@ export async function bake(
   for (const [pageIndex, list] of byPage) {
     const page = pages[pageIndex];
     if (!page) continue;
+    // the original text box (annotation) of an edited imported text goes; the edited text is drawn into the page instead
+    const gone = list.filter((a): a is TextAnnot => a.type === 'replace' && !!a.srcAnnot).map((a) => a.srcAnnot!.num);
+    const annotArr = gone.length ? page.node.Annots() : undefined;
+    if (annotArr)
+      for (let k = annotArr.size() - 1; k >= 0; k--) {
+        const r = annotArr.get(k);
+        if (r instanceof PDFRef && gone.includes(r.objectNumber)) annotArr.remove(k);
+      }
     const vp = await getViewport(pageIndex);
     const rot = vp.rotation % 360;
     const P = (x: number, y: number) => {
@@ -206,7 +218,8 @@ export async function bake(
       }
       const clean = res.removed > 0 && !res.unsafe;
       replaces.forEach((a, k) => {
-        a.bg = clean ? null : a.bg || '#ffffff';
+        // a text box imported from the PDF needs no cover: its original box is removed instead (a cover would also hide nearby lines)
+        a.bg = clean || a.srcAnnot ? null : a.bg || '#ffffff';
         const s = res.styles[k];
         if (s) {
           a.charSpacing = s.tc;
@@ -351,6 +364,11 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
       }
       break;
     }
+    case 'field': {
+      // a designed form field becomes a real, fillable field in the saved PDF
+      addField(doc, page, a, box(a.x, a.y, a.w, a.h));
+      break;
+    }
     case 'text':
     case 'replace': {
       let sys: PDFFont | null = null;
@@ -368,14 +386,43 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         } catch { /* Unsupported embedded font format. */ }
       }
       if (!sys && a.family) sys = await c.systemFont(a.family, !!a.bold, !!a.italic);
+      // ₱, accents beyond Latin-1, Cyrillic, Greek, CJK…: the standard PDF fonts can't draw these, so find an
+      // installed font that can (the chosen family first, then common wide-coverage Windows fonts)
+      const covers = (f: PDFFont, s: string) => {
+        const set = new Set(f.getCharacterSet());
+        return [...s].filter((ch) => ch !== '\n' && ch !== '\t' && !set.has(ch.codePointAt(0)!)).length;
+      };
+      if (NON_LATIN.test(a.text) && (!sys || covers(sys, a.text) > 0)) {
+        let best = sys, bestMissing = sys ? covers(sys, a.text) : Infinity;
+        const tried = new Set<string>();
+        for (const fam of [a.family, 'Segoe UI', 'Arial', 'Nirmala UI', 'Segoe UI Symbol', 'Microsoft YaHei', 'Yu Gothic', 'Malgun Gothic', 'Leelawadee UI']) {
+          if (!fam || tried.has(fam)) continue;
+          tried.add(fam);
+          const f = await c.systemFont(fam, !!a.bold, !!a.italic);
+          if (!f) continue;
+          const missing = covers(f, a.text);
+          if (missing < bestMissing) {
+            best = f;
+            bestMissing = missing;
+          }
+          if (!missing) break;
+        }
+        sys = best;
+      }
       const font = sys || (await c.font(a.font || 'sans', !!a.bold, !!a.italic));
-      const safe = (s: string) => (sys ? s.replace(/\t/g, '    ') : winAnsiSafe(s));
+      const sysSet = sys ? new Set(sys.getCharacterSet()) : null;
+      // with an embedded font keep every character it has; anything it lacks becomes "?" instead of crashing the save
+      const safe = (s: string) =>
+        sysSet
+          ? [...s.replace(/\t/g, '    ')].map((ch) => (ch === '\n' || sysSet.has(ch.codePointAt(0)!) ? ch : '?')).join('')
+          : winAnsiSafe(s);
       if (a.bg) {
         const r = a.orig ? box(a.orig.x, a.orig.y, a.orig.w, a.orig.h) : box(a.x, a.y, a.w, a.h);
         page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: col(a.bg) });
       }
       // edited lines stay on one line at the original baseline; new text boxes wrap
-      const lines = a.type === 'replace' ? safe(a.text).split('\n') : wrapText(font, safe(a.text), a.fontSize, Math.max(a.w - 4, 10));
+      const lines = a.type === 'replace' || a.wrap === false ? safe(a.text).split('\n') : wrapText(font, safe(a.text), a.fontSize, Math.max(a.w - 4, 10));
+      const avail = Math.max(a.w - 4, 10);
       const lh = a.fontSize * 1.2;
       const x0 = a.type === 'replace' && a.startX !== undefined ? a.startX : a.x + 2;
       lines.forEach((line, i) => {
@@ -398,6 +445,18 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
           setTextRise(0),
           setTextRenderingMode(TextRenderingMode.Fill),
         );
+        // alignment inside the box (not for edits that sit on an original line of the page)
+        let xl = x0;
+        let justify = 0;
+        if (a.align && a.align !== 'left' && !(a.type === 'replace' && a.startX !== undefined)) {
+          const lw = runW(line);
+          if (a.align === 'center') xl = x0 + (avail - lw) / 2;
+          else if (a.align === 'right') xl = x0 + avail - lw;
+          else if (a.align === 'justify' && i < lines.length - 1) {
+            const sp = (line.match(/ /g) || []).length;
+            if (sp) justify = (avail - lw) / sp;
+          }
+        }
         let extra = 0;
         if (a.type === 'replace' && a.origText && a.origWidth) {
           const spaces = (a.origText.match(/ /g) || []).length;
@@ -406,12 +465,13 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
             extra = Math.max(-a.fontSize * 0.15, Math.min(a.fontSize * 1.5, extra));
           }
         }
+        if (justify > 0) extra = justify;
         if (Math.abs(extra) < 0.01) {
-          const o = turn(P(x0, baseline), P(a.x + a.w / 2, a.y + a.h / 2), spin);
+          const o = turn(P(xl, baseline), P(a.x + a.w / 2, a.y + a.h / 2), spin);
           page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot - spin) });
         } else {
           // word by word, advancing by the measured width plus the document's spacing
-          let cx = x0;
+          let cx = xl;
           for (const word of line.split(' ')) {
             if (word) {
               const o = P(cx, baseline);

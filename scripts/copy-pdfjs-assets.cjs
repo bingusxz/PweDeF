@@ -15,3 +15,28 @@ for (const dir of ['cmaps', 'standard_fonts']) {
   fs.cpSync(from, to, { recursive: true });
 }
 console.log('pdf.js assets copied to public/pdfjs');
+
+// OCR engine + English/Filipino models, bundled so text recognition works fully offline.
+{
+  const ocr = path.join(root, 'public', 'ocr');
+  const pick = [
+    [path.join(root, 'node_modules', 'tesseract.js', 'dist', 'worker.min.js'), 'worker.min.js'],
+    ...['tesseract-core-lstm', 'tesseract-core-simd-lstm', 'tesseract-core-relaxedsimd-lstm'].map((n) => [
+      path.join(root, 'node_modules', 'tesseract.js-core', n + '.wasm.js'),
+      n + '.wasm.js',
+    ]),
+    ...['eng', 'fil'].map((l) => [path.join(root, 'node_modules', '@tesseract.js-data', l, '4.0.0_best_int', l + '.traineddata.gz'), path.join('lang', l + '.traineddata.gz')]),
+  ];
+  let n = 0;
+  for (const [from, rel] of pick) {
+    if (!fs.existsSync(from)) {
+      console.warn('OCR asset missing (run npm install):', from);
+      continue;
+    }
+    const to = path.join(ocr, rel);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(from, to);
+    n++;
+  }
+  console.log(`OCR assets copied to public/ocr (${n}/${pick.length})`);
+}

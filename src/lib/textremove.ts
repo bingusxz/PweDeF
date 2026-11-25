@@ -254,6 +254,8 @@ export function removeTextInRects(
   doc: PDFDocument,
   page: PDFPage,
   rects: PdfRect[],
+  /** delete every text-showing operator on the page, without measuring where it lands (page backdrops) */
+  everything = false,
 ): { removed: number; unsafe: boolean; styles: (RunStyle | null)[] } {
   const styles: (RunStyle | null)[] = rects.map(() => null);
   if (!rects.length) return { removed: 0, unsafe: false, styles };
@@ -376,6 +378,13 @@ export function removeTextInRects(
             }
             tlm = mul([1, 0, 0, 1, 0, -tl], tlm);
             tm = tlm;
+          }
+          if (everything) {
+            cuts.push([start, tok.e]);
+            removed++;
+            operands = [];
+            opStart = -1;
+            continue;
           }
           const strTok = operands[operands.length - 1];
           const items = strTok?.t === 'arr' ? strTok.v : strTok ? [strTok] : [];

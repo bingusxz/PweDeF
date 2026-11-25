@@ -3,6 +3,12 @@ import type { DocTab } from './types';
 import type { OpenedFile } from './global';
 import { Editor } from './components/Editor';
 import { BatchDialog } from './components/BatchDialog';
+import { MergeDialog } from './components/MergeDialog';
+import { CompareDialog } from './components/CompareDialog';
+import { HelpDialog } from './components/HelpDialog';
+import { Tour, tourDone } from './components/Tour';
+import { TermsGate, termsAccepted } from './components/TermsGate';
+import { EDITOR_TOUR, HOME_TOUR } from './help/tours';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToolHub, type HubAction } from './components/ToolHub';
 import { Modal } from './components/Modal';
@@ -10,7 +16,6 @@ import { BrandName, Wordmark } from './components/Logo';
 import { Icon } from './components/Icon';
 import { onToast, toast, errText, type ToastMsg } from './lib/toast';
 import { uid } from './lib/util';
-import { merge } from './lib/ops';
 import { IMAGE_FILTERS, imagesFilesToPdf } from './lib/convert';
 
 interface Recent {
@@ -35,6 +40,11 @@ export default function App() {
   const [tabs, setTabs] = useState<DocTab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [batch, setBatch] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [termsOk, setTermsOk] = useState(termsAccepted);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [tour, setTour] = useState<'home' | 'editor' | null>(null);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [recent, setRecent] = useState<Recent[]>(loadRecent);
   const [update, setUpdate] = useState<{ version: string; ready: boolean; percent?: number } | null>(null);
@@ -83,15 +93,8 @@ export default function App() {
 
   const openDialog = async () => openFiles(await window.acro.openPdfs());
 
-  const combineFiles = async () => {
-    const files = await window.acro.openPdfs({ title: 'Choose PDFs to combine (in order)' });
-    if (!files.length) return;
-    try {
-      openNew(await merge(files.map((f) => f.data)), 'Combined.pdf');
-    } catch (e) {
-      toast(errText(e), 'error');
-    }
-  };
+  // opens the Merge window: add files, order them, pick pages, turn them, then combine
+  const combineFiles = async () => setMergeOpen(true);
 
   const imagesToPdf = async () => {
     const files = await window.acro.openPdfs({ title: 'Choose images', filters: IMAGE_FILTERS });
@@ -127,6 +130,8 @@ export default function App() {
         return openDialog();
       case 'merge':
         return combineFiles();
+      case 'compare':
+        return setCompareOpen(true);
       case 'batch':
         return setBatch(true);
       case 'imgToPdf':
@@ -258,6 +263,26 @@ export default function App() {
   const updateTab = useCallback((id: string) => (fn: (t: DocTab) => DocTab) => setTabs((cur) => cur.map((t) => (t.id === id ? fn(t) : t))), []);
   const activeTab = tabs.find((t) => t.id === active) || null;
 
+  // F1 opens Help from anywhere
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        setHelpOpen(true);
+      }
+    };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, []);
+
+  // the first time a document opens, offer the short editor tour (once per computer)
+  const hasDoc = !!activeTab;
+  useEffect(() => {
+    if (!hasDoc || !termsOk || tourDone('editor')) return;
+    const t = setTimeout(() => setTour((cur) => cur ?? 'editor'), 900);
+    return () => clearTimeout(t);
+  }, [hasDoc, termsOk]);
+
   return (
     <div
       className="app"
@@ -295,6 +320,9 @@ export default function App() {
           ))}
           <button className="icon-btn" onClick={openDialog} title="Open (Ctrl+O)">
             <Icon name="add" />
+          </button>
+          <button className="icon-btn help-btn" onClick={() => setHelpOpen(true)} title="Help and tour (F1)" aria-label="Help">
+            <Icon name="help" />
           </button>
         </div>
         {update && (
@@ -358,6 +386,36 @@ export default function App() {
         </div>
       )}
       {batch && <BatchDialog onClose={() => setBatch(false)} />}
+      {compareOpen && <CompareDialog onClose={() => setCompareOpen(false)} />}
+      {helpOpen && (
+        <HelpDialog
+          version={version}
+          onClose={() => setHelpOpen(false)}
+          onTour={() => {
+            setHelpOpen(false);
+            setTour(activeTab ? 'editor' : 'home');
+          }}
+        />
+      )}
+      {tour && <Tour key={tour} id={tour} steps={tour === 'home' ? HOME_TOUR : EDITOR_TOUR} onDone={() => setTour(null)} />}
+      {!termsOk && (
+        <TermsGate
+          onAccept={() => {
+            setTermsOk(true);
+            if (!tourDone('home')) setTimeout(() => setTour('home'), 300);
+          }}
+        />
+      )}
+      {mergeOpen && (
+        <MergeDialog
+          initial={[]}
+          onClose={() => setMergeOpen(false)}
+          onDone={(bytes, name) => {
+            setMergeOpen(false);
+            openNew(bytes, name);
+          }}
+        />
+      )}
       {urlDialog && (
         <UrlDialog
           onClose={() => setUrlDialog(false)}
@@ -398,7 +456,6 @@ function UrlDialog({ onClose, onRun }: { onClose: () => void; onRun: (url: strin
       onClose={onClose}
       footer={
         <>
-          <button onClick={onClose}>Cancel</button>
           <button className="primary" disabled={url.length < 10} onClick={() => onRun(url, landscape)}>
             Convert
           </button>

@@ -3,7 +3,9 @@ import { Modal } from './Modal';
 import { Icon } from './Icon';
 import type { OpenedFile } from '../global';
 import * as ops from '../lib/ops';
-import { NumberFields, WatermarkFields, defaultNumbers, defaultWatermark, resolveWatermark } from './ToolDialogs';
+import { optimize } from '../lib/optimize';
+import { shrinkImage } from '../lib/imageShrink';
+import { NumberFields, WatermarkFields, defaultNumbers, defaultWatermark, resolveNumbers, resolveWatermark } from './ToolDialogs';
 import { baseName } from '../lib/util';
 import { errText } from '../lib/toast';
 
@@ -41,12 +43,12 @@ export function BatchDialog({ onClose }: { onClose: () => void }) {
     let b = bytes;
     for (const s of steps) {
       if (s.kind === 'watermark') b = await ops.watermark(b, await resolveWatermark(s.o));
-      else if (s.kind === 'numbers') b = await ops.pageNumbers(b, s.o);
+      else if (s.kind === 'numbers') b = await ops.pageNumbers(b, await resolveNumbers(s.o));
       else if (s.kind === 'rotate') {
         const n = await ops.pageCount(b);
         b = await ops.rotatePages(b, Array.from({ length: n }, (_, i) => i), s.deg);
       } else if (s.kind === 'flatten') b = await ops.flattenForms(b);
-      else if (s.kind === 'compress') b = await ops.compress(b);
+      else if (s.kind === 'compress') b = (await optimize(b, { preset: 'balanced' }, { shrinkImage })).bytes;
       else if (s.kind === 'metadata') b = await ops.setMetadata(b, { author: s.author });
     }
     return b;
@@ -101,7 +103,6 @@ export function BatchDialog({ onClose }: { onClose: () => void }) {
         <>
           <span className="muted">{files.length} file(s) · {steps.length} action(s)</span>
           <span className="tb-spacer" />
-          <button onClick={onClose}>Close</button>
           <button className="primary" disabled={!files.length || (!steps.length && !mergeAll) || running} onClick={runBatch}>
             {running ? 'Running…' : 'Run & choose output folder'}
           </button>

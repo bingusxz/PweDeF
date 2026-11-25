@@ -34,6 +34,10 @@ export interface EditorApi {
   setFormValue(name: string, value: string | boolean): void;
   placeImageAt(page: number, x: number, y: number, fit?: Rect): void;
   signField(page: number, rect: Rect): void;
+  /** the box drawn for a visible digital signature */
+  signArea(page: number, rect: Rect): void;
+  /** click on a picture already on the page: lift it out to save or copy */
+  pickPicture(page: number, x: number, y: number): void;
 }
 
 export const EditorCtx = createContext<EditorApi | null>(null);
