@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './Modal';
 import { Icon } from './Icon';
 import { SIGNATURE_FONTS, STAMPS, imageSize, loadSigs, saveSigs, stampImage, trimCanvas, typedSignature, type SavedSig } from '../lib/stamps';
@@ -7,6 +7,89 @@ import type { PendingImage } from './EditorContext';
 import { IMAGE_FILTERS } from '../lib/convert';
 
 type TabKey = 'saved' | 'draw' | 'type' | 'upload' | 'stamp';
+
+const INKS = [
+  { name: 'Red', color: '#c62828' },
+  { name: 'Blue', color: '#1d4fbf' },
+  { name: 'Green', color: '#1f7a3b' },
+  { name: 'Violet', color: '#5b3fa8' },
+  { name: 'Black', color: '#1c2340' },
+];
+const TILT = [-2.5, 1.5, -1, 2.2, -1.8, 1, -2.2, 1.8];
+
+/** The stamp pad: every stamp shown as the real impression it will leave on the page. */
+function StampPad({
+  onPick,
+  stampSub,
+  setStampSub,
+  userName,
+  setUserName,
+}: {
+  onPick: (img: PendingImage) => void;
+  stampSub: boolean;
+  setStampSub: (v: boolean) => void;
+  userName: string;
+  setUserName: (v: string) => void;
+}) {
+  const [custom, setCustom] = useState('');
+  const [ink, setInk] = useState(INKS[0].color);
+  const sub = stampSub ? `${userName ? userName + ' · ' : ''}${new Date().toLocaleString()}` : undefined;
+  const impressions = useMemo(() => STAMPS.map((s) => ({ ...s, ...stampImage(s.label, s.color, sub) })), [sub]);
+  const customImg = useMemo(() => (custom.trim() ? stampImage(custom.trim().toUpperCase(), ink, sub) : null), [custom, ink, sub]);
+  const use = (st: { dataUrl: string; w: number; h: number }) => onPick({ dataUrl: st.dataUrl, w: st.w, h: st.h, label: 'stamp' });
+
+  return (
+    <>
+      <div className="stamp-opts">
+        <label className="check">
+          <input type="checkbox" checked={stampSub} onChange={(e) => setStampSub(e.target.checked)} /> Print name and date under the stamp
+        </label>
+        {stampSub && (
+          <input
+            placeholder="Name to print"
+            value={userName}
+            onChange={(e) => {
+              setUserName(e.target.value);
+              localStorage.setItem('acro.user', e.target.value);
+            }}
+          />
+        )}
+      </div>
+      <div className="stamp-sheet">
+        {impressions.map((s, i) => (
+          <button key={s.label} className="impression" onClick={() => use(s)} title={`Place "${s.label}"`}>
+            <img src={s.dataUrl} alt={s.label} style={{ transform: `rotate(${TILT[i % TILT.length]}deg)` }} />
+          </button>
+        ))}
+      </div>
+      <div className="stamp-custom">
+        <span className="ctx-cap">Your own stamp</span>
+        <input placeholder="e.g. CHECKED BY ACCOUNTING" value={custom} maxLength={28} onChange={(e) => setCustom(e.target.value)} />
+        <div className="ink-row" role="radiogroup" aria-label="Ink colour">
+          {INKS.map((k) => (
+            <button
+              key={k.color}
+              role="radio"
+              aria-checked={ink === k.color}
+              aria-label={`${k.name} ink`}
+              className={`swatch ${ink === k.color ? 'on' : ''}`}
+              style={{ background: k.color }}
+              onClick={() => setInk(k.color)}
+            />
+          ))}
+        </div>
+        <button className="primary" disabled={!customImg} onClick={() => customImg && use(customImg)}>
+          Place stamp
+        </button>
+      </div>
+      {customImg && (
+        <div className="stamp-proof">
+          <img src={customImg.dataUrl} alt="Preview of your stamp" />
+        </div>
+      )}
+    </>
+  );
+}
 
 export function SignatureDialog({
   initialTab,
@@ -212,43 +295,7 @@ export function SignatureDialog({
         </div>
       )}
 
-      {tab === 'stamp' && (
-        <>
-          <div className="row gap">
-            <label className="check">
-              <input type="checkbox" checked={stampSub} onChange={(e) => setStampSub(e.target.checked)} /> Add name & date
-            </label>
-            {stampSub && (
-              <input
-                placeholder="Your name"
-                value={userName}
-                onChange={(e) => {
-                  setUserName(e.target.value);
-                  localStorage.setItem('acro.user', e.target.value);
-                }}
-              />
-            )}
-          </div>
-          <div className="stamp-grid">
-            {STAMPS.map((s) => {
-              const sub = stampSub ? `${userName ? userName + ' · ' : ''}${new Date().toLocaleString()}` : undefined;
-              return (
-                <button
-                  key={s.label}
-                  className="stamp-btn"
-                  style={{ color: s.color, borderColor: s.color }}
-                  onClick={() => {
-                    const st = stampImage(s.label, s.color, sub);
-                    onPick({ dataUrl: st.dataUrl, w: st.w, h: st.h, label: 'stamp' });
-                  }}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+      {tab === 'stamp' && <StampPad onPick={onPick} stampSub={stampSub} setStampSub={setStampSub} userName={userName} setUserName={setUserName} />}
     </Modal>
   );
 }

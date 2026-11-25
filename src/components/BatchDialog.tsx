@@ -3,7 +3,7 @@ import { Modal } from './Modal';
 import { Icon } from './Icon';
 import type { OpenedFile } from '../global';
 import * as ops from '../lib/ops';
-import { NumberFields, WatermarkFields, defaultNumbers, defaultWatermark } from './ToolDialogs';
+import { NumberFields, WatermarkFields, defaultNumbers, defaultWatermark, resolveWatermark } from './ToolDialogs';
 import { baseName } from '../lib/util';
 import { errText } from '../lib/toast';
 
@@ -40,7 +40,7 @@ export function BatchDialog({ onClose }: { onClose: () => void }) {
   const apply = async (bytes: Uint8Array) => {
     let b = bytes;
     for (const s of steps) {
-      if (s.kind === 'watermark') b = await ops.watermark(b, s.o);
+      if (s.kind === 'watermark') b = await ops.watermark(b, await resolveWatermark(s.o));
       else if (s.kind === 'numbers') b = await ops.pageNumbers(b, s.o);
       else if (s.kind === 'rotate') {
         const n = await ops.pageCount(b);
@@ -154,7 +154,7 @@ export function BatchDialog({ onClose }: { onClose: () => void }) {
                   <Icon name="close" size={12} />
                 </button>
               </div>
-              {s.kind === 'watermark' && <WatermarkFields o={s.o} set={(o) => setSteps(steps.map((x, j) => (j === i ? { ...s, o } : x)))} />}
+              {s.kind === 'watermark' && <WatermarkFields batch o={s.o} set={(o) => setSteps(steps.map((x, j) => (j === i ? { ...s, o } : x)))} />}
               {s.kind === 'numbers' && <NumberFields o={s.o} set={(o) => setSteps(steps.map((x, j) => (j === i ? { ...s, o } : x)))} />}
               {s.kind === 'rotate' && (
                 <select value={s.deg} onChange={(e) => setSteps(steps.map((x, j) => (j === i ? { ...s, deg: +e.target.value } : x)))}>

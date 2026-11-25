@@ -28,6 +28,7 @@ declare global {
       setTheme?(mode: 'system' | 'light' | 'dark'): Promise<void>;
       matchFont(pdfName: string): Promise<{ family: string; bold: boolean; italic: boolean; file: string; exact: boolean } | null>;
       loadFont(q: { family: string; bold: boolean; italic: boolean }): Promise<{ data: Uint8Array; exact: boolean } | null>;
+      listFonts(): Promise<string[]>;
       convertCaps(): Promise<{ office: boolean; libreoffice: boolean }>;
       officeToPdf(kind?: 'word' | 'excel' | 'ppt'): Promise<{ name: string; data?: Uint8Array; error?: string }[]>;
       webToPdf(url: string, landscape?: boolean): Promise<{ name: string; data: Uint8Array }>;

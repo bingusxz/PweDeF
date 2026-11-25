@@ -115,7 +115,7 @@ async function webToPdf(target, opts = {}) {
   if (!/^https?:\/\//i.test(url)) {
     if (fss.existsSync(url)) url = require('node:url').pathToFileURL(url).toString();
     else if (/^[\w.-]+\.[a-z]{2,}/i.test(url)) url = 'https://' + url;
-    else throw new Error('Enter a web address (https://â€¦) or choose an HTML file');
+    else throw new Error('Enter a web address (https://…) or choose an HTML file');
   }
   const win = new BrowserWindow({
     show: false,

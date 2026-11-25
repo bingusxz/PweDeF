@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('acro', {
   setTheme: (mode) => ipcRenderer.invoke('theme:set', mode),
   matchFont: (pdfName) => ipcRenderer.invoke('fonts:match', pdfName),
   loadFont: (q) => ipcRenderer.invoke('fonts:load', q),
+  listFonts: () => ipcRenderer.invoke('fonts:list'),
   convertCaps: () => ipcRenderer.invoke('convert:caps'),
   officeToPdf: (kind) => ipcRenderer.invoke('convert:officeToPdf', kind),
   webToPdf: (url, landscape) => ipcRenderer.invoke('convert:webToPdf', { url, landscape }),

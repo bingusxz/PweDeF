@@ -73,7 +73,7 @@ export async function pdfToDocx(pdf: PDFDocumentProxy, mode: 'text' | 'exact', o
       const canvas = await renderToCanvas(page, 2);
       const png = await blobToBytes(await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), 'image/png')));
       const vp = page.getViewport({ scale: 1 });
-      const maxW = first.width - 72; // fit within margins (pt â‰ˆ px at 72dpi here)
+      const maxW = first.width - 72; // fit within margins (pt ≈ px at 72dpi here)
       const s = Math.min(1, maxW / vp.width);
       children.push(
         new Paragraph({
@@ -127,7 +127,7 @@ export async function pdfToDocx(pdf: PDFDocumentProxy, mode: 'text' | 'exact', o
   return blobToBytes(await Packer.toBlob(doc));
 }
 
-/** PDF -> .xlsx â€” reconstructs table rows/columns from text positions (one sheet per page). */
+/** PDF -> .xlsx — reconstructs table rows/columns from text positions (one sheet per page). */
 export async function pdfToXlsx(pdf: PDFDocumentProxy, onProgress: (i: number, n: number) => void) {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
@@ -169,7 +169,7 @@ export async function pdfToXlsx(pdf: PDFDocumentProxy, onProgress: (i: number, n
   return new Uint8Array((await wb.xlsx.writeBuffer()) as ArrayBuffer);
 }
 
-/** PDF -> .pptx â€” each page becomes a full-bleed slide. */
+/** PDF -> .pptx — each page becomes a full-bleed slide. */
 export async function pdfToPptx(pdf: PDFDocumentProxy, onProgress: (i: number, n: number) => void) {
   const PptxGenJS = (await import('pptxgenjs')).default;
   const pres = new PptxGenJS();

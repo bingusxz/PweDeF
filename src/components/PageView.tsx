@@ -148,6 +148,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       const a: TextAnnot = {
         id, page: index, type: 'text', x: x0, y: y0 - style.fontSize * 0.7, w: 220,
         h: style.fontSize * 1.2 + 4, text: '', fontSize: style.fontSize, color: style.color,
+        family: style.family, bold: style.bold, italic: style.italic,
       };
       ed.addAnnot(a, true);
       return;
@@ -196,17 +197,17 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       const [x, y] = toPage(ev.clientX, ev.clientY);
       if (tool === 'ink') {
         const pts = current && current.type === 'ink' ? current.points : [[x0, y0] as [number, number]];
-        current = { id, page: index, type: 'ink', points: [...pts, [x, y]], color: style.color, width: style.width };
+        current = { id, page: index, type: 'ink', points: [...pts, [x, y]], color: style.color, width: style.width, dash: style.dash };
       } else if (tool === 'line' || tool === 'arrow') {
         let x2 = x, y2 = y;
         if (ev.shiftKey) {
-          // snap to 45Â°
+          // snap to 45°
           const ang = Math.round(Math.atan2(y - y0, x - x0) / (Math.PI / 4)) * (Math.PI / 4);
           const len = Math.hypot(x - x0, y - y0);
           x2 = x0 + len * Math.cos(ang);
           y2 = y0 + len * Math.sin(ang);
         }
-        current = { id, page: index, type: tool, x1: x0, y1: y0, x2, y2, color: style.color, width: style.width };
+        current = { id, page: index, type: tool, x1: x0, y1: y0, x2, y2, color: style.color, width: style.width, dash: style.dash };
       } else {
         let r = normRect(x0, y0, x, y);
         if (ev.shiftKey && (tool === 'rect' || tool === 'ellipse')) {
@@ -217,7 +218,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
         else if (tool === 'whiteout') current = { id, page: index, type: 'whiteout', ...r, color: '#ffffff' };
         else if (tool === 'redact') current = { id, page: index, type: 'redact', ...r };
         else if (tool === 'rect' || tool === 'ellipse')
-          current = { id, page: index, type: tool, ...r, color: style.color, width: style.width, fill: style.fill };
+          current = { id, page: index, type: tool, ...r, color: style.color, width: style.width, fill: style.fill, dash: style.dash };
       }
       setDraft(current);
     };
@@ -314,14 +315,21 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     prevEditing.current = ed.editingId;
     if (!prev || prev === ed.editingId || !page) return;
     const a = ed.annots.find((x) => x.id === prev);
-    if (!a || a.type !== 'replace' || a.page !== index || a.itemIndex === undefined || a.startX === undefined || a.baseline === undefined) return;
+    if (!a || a.type !== 'replace' || a.page !== index || a.pushedBy) return;
+    // Clicked but not changed: drop the edit entirely so the original stays byte-for-byte as it was.
+    if (a.origText !== undefined && a.text === a.origText) {
+      ed.removeAnnot(a.id);
+      return;
+    }
+    if (a.itemIndex === undefined || a.startX === undefined || a.baseline === undefined) return;
     const src = textItems.current[a.itemIndex];
     if (!src) return;
     const ctx = document.createElement('canvas').getContext('2d')!;
     ctx.font = `${a.italic ? 'italic ' : ''}${a.bold ? 700 : 400} ${a.fontSize}px "${a.family || 'Arial'}", sans-serif`;
-    const newEnd = a.startX + ctx.measureText(a.text).width;
+    // compare like with like: both strings measured with the same font, so measuring
+    // differences cancel out and only a real change in length moves the neighbours
+    const delta = ctx.measureText(a.text).width - ctx.measureText(a.origText ?? src.str).width;
     const origEnd = a.startX + src.width;
-    const delta = newEnd - origEnd;
     // neighbours on the same baseline, to the right, contiguous (gaps under 3em)
     const row = textItems.current
       .map((it, i) => ({ it, i, g: it.str?.trim() ? itemGeom(it) : null }))
@@ -441,7 +449,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     ed.addAnnot(
       {
         id, page: index, type: 'replace', ...box, orig: box,
-        text: span.textContent, fontSize, color: sampleInk(canvasRef.current!, r, wrapRef.current!), bg: '#ffffff', itemIndex: item ? Number(span.dataset.item) : undefined,
+        text: span.textContent, origText: span.textContent, fontSize, color: sampleInk(canvasRef.current!, r, wrapRef.current!), bg: '#ffffff', itemIndex: item ? Number(span.dataset.item) : undefined,
         font, bold, italic, baseline, startX,
       },
       true,
@@ -469,7 +477,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       onPointerUp={onWrapPointerUp}
     >
       <canvas ref={canvasRef} className="page-canvas" style={{ width: W, height: H }} />
-      {!rendered && <div className="page-loading">Loading page {index + 1}â€¦</div>}
+      {!rendered && <div className="page-loading">Loading page {index + 1}…</div>}
       <div ref={textRef} className={`textLayer ${textOnTop ? 'on-top' : ''}`} onClick={onTextClick} />
 
       {/* annotations */}
@@ -621,13 +629,15 @@ function SvgAnnot({ a, zoom: z }: { a: Annot; zoom: number }) {
           fill="none"
           stroke={a.color}
           strokeWidth={a.width * z}
+          strokeDasharray={a.dash ? ` ` : undefined}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
       );
     case 'rect':
       return (
-        <rect {...common} x={a.x * z} y={a.y * z} width={a.w * z} height={a.h * z} stroke={a.color} strokeWidth={a.width * z} fill={a.fill || 'transparent'} />
+        <rect {...common} x={a.x * z} y={a.y * z} width={a.w * z} height={a.h * z} stroke={a.color} strokeWidth={a.width * z}
+          strokeDasharray={a.dash ? ` ` : undefined} fill={a.fill || 'transparent'} />
       );
     case 'ellipse':
       return (
@@ -639,6 +649,7 @@ function SvgAnnot({ a, zoom: z }: { a: Annot; zoom: number }) {
           ry={(a.h / 2) * z}
           stroke={a.color}
           strokeWidth={a.width * z}
+          strokeDasharray={a.dash ? ` ` : undefined}
           fill={a.fill || 'transparent'}
         />
       );
@@ -676,6 +687,7 @@ function SvgAnnot({ a, zoom: z }: { a: Annot; zoom: number }) {
             d={`M${a.x1 * z},${a.y1 * z}L${a.x2 * z},${a.y2 * z}${a.type === 'arrow' ? arrowHead(a, z) : ''}`}
             stroke={a.color}
             strokeWidth={a.width * z}
+          strokeDasharray={a.dash ? ` ` : undefined}
             strokeLinecap="round"
             fill="none"
           />
@@ -712,6 +724,29 @@ function startMove(e: React.PointerEvent, a: Annot, ed: ReturnType<typeof useEdi
 }
 
 import { moveAnnot as moveAnnotBy } from '../lib/util';
+
+/** Drag the knob around the box centre; angle follows the pointer. Shift snaps to 15°. */
+function startRotate(e: React.PointerEvent, a: Annot, ed: ReturnType<typeof useEditor>) {
+  e.stopPropagation();
+  e.preventDefault();
+  ed.pushHistory();
+  const el = (e.currentTarget as HTMLElement).parentElement!;
+  const r = el.getBoundingClientRect(); // bounding box of the rotated element: its centre is the pivot
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const move = (ev: PointerEvent) => {
+    let deg = (Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180) / Math.PI + 90;
+    if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
+    deg = ((Math.round(deg) % 360) + 360) % 360;
+    ed.changeAnnot(a.id, (c) => ({ ...c, rotation: deg }) as Annot, false);
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
 
 function startResize(e: React.PointerEvent, a: Annot & Rect, ed: ReturnType<typeof useEditor>, zoom: number) {
   e.stopPropagation();
@@ -761,6 +796,8 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
 
   const b = annotBounds(a);
   const box = { left: b.x * z, top: b.y * z, width: b.w * z, height: b.h * z };
+  const canSpin = a.type === 'image' || a.type === 'text';
+  const spin = canSpin ? (a as { rotation?: number }).rotation || 0 : 0;
   const onDown = (e: React.PointerEvent) => {
     if (!interactive || editing) return;
     startMove(e, a, ed, z);
@@ -791,7 +828,7 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
       };
       if (a.type === 'replace' && a.orig) st.background = 'transparent'; // only the original word is hidden (see cover below)
       if (a.type === 'replace' && a.baseline !== undefined && a.startX !== undefined) {
-        // sit the preview on the original baseline (â‰ˆ0.9em ascent) and start x
+        // sit the preview on the original baseline (≈0.9em ascent) and start x
         st.lineHeight = 1;
         st.padding = `${Math.max(0, (a.baseline - a.y - a.fontSize * 0.9) * z)}px 0 0 ${Math.max(0, (a.startX - a.x) * z)}px`;
       }
@@ -868,7 +905,7 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
             <div className="note-pop" onPointerDown={(e) => e.stopPropagation()}>
               <textarea
                 ref={editing ? taRef : undefined}
-                placeholder="Write a commentâ€¦"
+                placeholder="Write a comment…"
                 value={a.text}
                 onChange={(e) => ed.changeAnnot(a.id, (c) => ({ ...c, text: e.target.value }) as Annot, false)}
                 onFocus={() => ed.edit(a.id)}
@@ -888,13 +925,18 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
   return (
     <div
       className={`html-annot t-${a.type} ${sel ? 'selected' : ''} ${interactive ? 'interactive' : ''} ${body ? '' : 'chrome-only'}`}
-      style={box}
+      style={{ ...box, transform: spin ? `rotate(${spin}deg)` : undefined }}
       onPointerDown={body ? onDown : undefined}
       onDoubleClick={onDbl}
     >
       {body}
       {sel && isBoxAnnot(a) && (
         <div className="resize-handle" onPointerDown={(e) => startResize(e, a as Annot & Rect, ed, z)} />
+      )}
+      {sel && canSpin && (
+        <div className="rotate-handle" title="Drag to rotate · Shift snaps to 15°" onPointerDown={(e) => startRotate(e, a, ed)}>
+          <Icon name="rotR" size={12} />
+        </div>
       )}
     </div>
   );

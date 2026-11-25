@@ -35,8 +35,8 @@ interface Base {
 }
 
 export type MarkupAnnot = Base & { type: 'highlight' | 'underline' | 'strike'; rects: Rect[]; color: string };
-export type InkAnnot = Base & { type: 'ink'; points: [number, number][]; color: string; width: number };
-export type ShapeAnnot = Base & Rect & { type: 'rect' | 'ellipse'; color: string; width: number; fill: string | null };
+export type InkAnnot = Base & { type: 'ink'; points: [number, number][]; color: string; width: number; dash?: boolean };
+export type ShapeAnnot = Base & Rect & { type: 'rect' | 'ellipse'; color: string; width: number; fill: string | null; dash?: boolean };
 export type LineAnnot = Base & {
   type: 'line' | 'arrow';
   x1: number;
@@ -45,6 +45,7 @@ export type LineAnnot = Base & {
   y2: number;
   color: string;
   width: number;
+  dash?: boolean;
 };
 export type TextAnnot = Base &
   Rect & {
@@ -62,6 +63,10 @@ export type TextAnnot = Base &
     startX?: number;
     /** the original text's box, removed from the page content on save */
     orig?: Rect;
+    /** degrees clockwise around the box centre (new text boxes only) */
+    rotation?: number;
+    /** the text as it was in the PDF; an edit left unchanged is discarded so the original stays untouched */
+    origText?: string;
     /** index of the source pdf.js text item (for line reflow) */
     itemIndex?: number;
     /** neighbours pushed along the line when this edit grew; managed automatically */
@@ -73,7 +78,8 @@ export type TextAnnot = Base &
 export type WhiteoutAnnot = Base & Rect & { type: 'whiteout'; color: string };
 /** True redaction: the page is re-rendered as an image with the area removed (no hidden text survives). */
 export type RedactAnnot = Base & Rect & { type: 'redact' };
-export type ImageAnnot = Base & Rect & { type: 'image'; dataUrl: string; label?: string };
+/** rotation: degrees clockwise on screen, around the box centre */
+export type ImageAnnot = Base & Rect & { type: 'image'; dataUrl: string; label?: string; rotation?: number };
 export type NoteAnnot = Base & { type: 'note'; x: number; y: number; text: string; color: string };
 /** A text run captured by the Move tool, redrawn in its own font at the new place. */
 export interface MovedText {
@@ -138,4 +144,9 @@ export interface StyleState {
   highlight: string;
   mark: 'check' | 'cross' | 'dot';
   markSize: number;
+  dash: boolean;
+  /** font for new text boxes */
+  family: string;
+  bold: boolean;
+  italic: boolean;
 }

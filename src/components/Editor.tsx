@@ -5,7 +5,7 @@ import { EditorCtx, type EditorApi, type Hit, type PendingImage } from './Editor
 import { PageView } from './PageView';
 import { Thumbnails, type PageActions } from './Thumbnails';
 import { SignatureDialog } from './SignatureDialog';
-import { ToolDialog, type ToolKind, type ToolHandlers } from './ToolDialogs';
+import { ToolDialog, resolveWatermark, type ToolKind, type ToolHandlers } from './ToolDialogs';
 import { Icon } from './Icon';
 import { bake } from '../lib/bake';
 import { applyRedactions } from '../lib/redact';
@@ -30,7 +30,7 @@ const TOOL_GROUPS: { tool: Tool; icon: string; label: string; key?: string }[][]
     { tool: 'hand', icon: 'hand', label: 'Pan (H)', key: 'h' },
   ],
   [
-    { tool: 'editText', icon: 'editText', label: 'Edit existing text (E) â€” click any word/line', key: 'e' },
+    { tool: 'editText', icon: 'editText', label: 'Edit existing text (E) — click any word/line', key: 'e' },
     { tool: 'text', icon: 'text', label: 'Add text (T)', key: 't' },
     { tool: 'move', icon: 'moveTool', label: 'Move (M): drag a box around anything, then drag the box to move it', key: 'm' },
     { tool: 'whiteout', icon: 'whiteout', label: 'Whiteout / cover (W)', key: 'w' },
@@ -44,12 +44,12 @@ const TOOL_GROUPS: { tool: Tool; icon: string; label: string; key?: string }[][]
   ],
   [
     { tool: 'ink', icon: 'ink', label: 'Draw freehand (D)', key: 'd' },
-    { tool: 'rect', icon: 'rect', label: 'Rectangle (R) â€” Shift for square', key: 'r' },
+    { tool: 'rect', icon: 'rect', label: 'Rectangle (R) — Shift for square', key: 'r' },
     { tool: 'ellipse', icon: 'ellipse', label: 'Ellipse (O)', key: 'o' },
-    { tool: 'line', icon: 'line', label: 'Line (L) â€” Shift snaps 45Â°', key: 'l' },
+    { tool: 'line', icon: 'line', label: 'Line (L) — Shift snaps 45°', key: 'l' },
     { tool: 'arrow', icon: 'arrow', label: 'Arrow (A)', key: 'a' },
   ],
-  [{ tool: 'redact', icon: 'redact', label: 'Redact â€” permanently removes content on save', key: 'x' }],
+  [{ tool: 'redact', icon: 'redact', label: 'Redact — permanently removes content on save', key: 'x' }],
 ];
 
 /** The tools people look for by name get a visible label, not just an icon. */
@@ -80,7 +80,15 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
     highlight: '#ffe14d',
     mark: 'check',
     markSize: 12,
+    dash: false,
+    family: 'Arial',
+    bold: false,
+    italic: false,
   });
+  const [fonts, setFonts] = useState<string[]>([]);
+  useEffect(() => {
+    window.acro.listFonts().then(setFonts).catch(() => {});
+  }, []);
   const [selectedId, setSelected] = useState<string | null>(null);
   const [editingId, setEditing] = useState<string | null>(null);
   const [panel, setPanel] = useState<'pages' | 'search' | 'comments' | null>('pages');
@@ -241,7 +249,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   const save = useCallback(
     async (as = false) => {
       const t = tabRef.current;
-      setBusy({ msg: 'Savingâ€¦' });
+      setBusy({ msg: 'Saving…' });
       try {
         const out = await produceBytes();
         let path = t.path;
@@ -358,10 +366,10 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
 
   // ---------- page actions ----------
   const pageActions: PageActions = {
-    rotate: (idx, d) => run('Rotatingâ€¦', (b) => ops.rotatePages(b, idx, d)),
-    remove: (idx) => run('Deleting pagesâ€¦', (b) => ops.deletePages(b, idx)),
+    rotate: (idx, d) => run('Rotating…', (b) => ops.rotatePages(b, idx, d)),
+    remove: (idx) => run('Deleting pages…', (b) => ops.deletePages(b, idx)),
     extract: async (idx) => {
-      setBusy({ msg: 'Extractingâ€¦' });
+      setBusy({ msg: 'Extracting…' });
       try {
         const out = await ops.extractPages(await produceBytes(), idx);
         openNew(out, `${baseName(tab.name)} (pages ${idx.map((i) => i + 1).join(',')}).pdf`);
@@ -372,7 +380,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
       }
     },
     duplicate: (idx) =>
-      run('Duplicatingâ€¦', async (b) => {
+      run('Duplicating…', async (b) => {
         const n = pdf!.numPages;
         const order: number[] = [];
         for (let i = 0; i < n; i++) {
@@ -381,11 +389,11 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
         }
         return ops.reorderPages(b, order);
       }),
-    insertBlank: (at) => run('Inserting pageâ€¦', (b) => ops.insertBlank(b, at)),
+    insertBlank: (at) => run('Inserting page…', (b) => ops.insertBlank(b, at)),
     insertFile: async (at) => {
-      const files = await window.acro.openPdfs({ title: 'Insert pages fromâ€¦' });
+      const files = await window.acro.openPdfs({ title: 'Insert pages from…' });
       if (!files.length) return;
-      run('Inserting pagesâ€¦', async (b) => {
+      run('Inserting pages…', async (b) => {
         let out = b;
         let pos = at;
         for (const f of files) {
@@ -396,24 +404,24 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
         return out;
       });
     },
-    reorder: (order) => run('Reorderingâ€¦', (b) => ops.reorderPages(b, order)),
+    reorder: (order) => run('Reordering…', (b) => ops.reorderPages(b, order)),
     goto: (i) => scrollTo(i),
   };
 
   const toolHandlers: ToolHandlers = {
     watermark: (o) => {
       setToolDialog(null);
-      run('Adding watermarkâ€¦', (b) => ops.watermark(b, o));
+      run('Adding watermark…', async (b) => ops.watermark(b, await resolveWatermark(o)));
     },
     numbers: (o) => {
       setToolDialog(null);
-      run('Numbering pagesâ€¦', (b) => ops.pageNumbers(b, o));
+      run('Numbering pages…', (b) => ops.pageNumbers(b, o));
     },
     split: async (spec) => {
       setToolDialog(null);
       const folder = await window.acro.chooseFolder();
       if (!folder) return;
-      setBusy({ msg: 'Splittingâ€¦' });
+      setBusy({ msg: 'Splitting…' });
       try {
         const parts = await ops.split(await produceBytes(), spec);
         for (let i = 0; i < parts.length; i++) await window.acro.writeInFolder(folder, downloadName(tab.name, `-part${i + 1}`), parts[i]);
@@ -427,18 +435,18 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
     },
     properties: (m) => {
       setToolDialog(null);
-      run('Updating propertiesâ€¦', (b) => ops.setMetadata(b, m));
+      run('Updating properties…', (b) => ops.setMetadata(b, m));
     },
     ocr: async ({ lang, scope }) => {
       setToolDialog(null);
       const pages = scope === 'current' ? [current] : Array.from({ length: pdf!.numPages }, (_, i) => i);
-      setBusy({ msg: 'Preparing OCRâ€¦', frac: 0 });
+      setBusy({ msg: 'Preparing OCR…', frac: 0 });
       try {
         const base = await produceBytes();
         const basePdf = base === tab.bytes ? pdf! : await loadPdf(base);
         const res = await ocrDocument(base, basePdf, pages, lang, (msg, frac) => setBusy({ msg, frac }));
         mutate((t) => ({ bytes: res.bytes, annots: [], form: {}, rev: t.rev + 1 }));
-        toast(`OCR complete â€” ${res.words} words recognized. Text is now searchable.`, 'ok');
+        toast(`OCR complete — ${res.words} words recognized. Text is now searchable.`, 'ok');
       } catch (e) {
         toast('OCR failed: ' + errText(e), 'error');
       } finally {
@@ -452,7 +460,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
     exportImages: async ({ format, dpi }) => {
       setToolDialog(null);
       try {
-        const folder = await exportImages(pdf!, tab.name, format, dpi, (i, n) => setBusy({ msg: `Exporting page ${i}/${n}â€¦`, frac: i / n }));
+        const folder = await exportImages(pdf!, tab.name, format, dpi, (i, n) => setBusy({ msg: `Exporting page ${i}/${n}…`, frac: i / n }));
         if (folder) {
           toast('Export complete', 'ok');
           window.acro.showItem(folder);
@@ -474,12 +482,12 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
 
   const exportOffice = async (kind: 'word-text' | 'word-exact' | 'excel' | 'ppt') => {
     const { pdfToDocx, pdfToXlsx, pdfToPptx } = await import('../lib/exporters');
-    setBusy({ msg: 'Convertingâ€¦', frac: 0 });
+    setBusy({ msg: 'Converting…', frac: 0 });
     let temp: PDFDocumentProxy | null = null;
     try {
       const { doc, temp: isTemp } = await currentPdf();
       if (isTemp) temp = doc;
-      const prog = (i: number, n: number) => setBusy({ msg: `Converting page ${i} of ${n}â€¦`, frac: i / n });
+      const prog = (i: number, n: number) => setBusy({ msg: `Converting page ${i} of ${n}…`, frac: i / n });
       const [bytes, ext, label] =
         kind === 'excel' ? [await pdfToXlsx(doc, prog), 'xlsx', 'Excel']
         : kind === 'ppt' ? [await pdfToPptx(doc, prog), 'pptx', 'PowerPoint']
@@ -501,19 +509,19 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   const quickActions = {
     combine: async () => {
       const files = await window.acro.openPdfs({ title: 'Append PDFs to the end' });
-      if (files.length) run('Combiningâ€¦', (b) => ops.merge([b, ...files.map((f) => f.data)]));
+      if (files.length) run('Combining…', (b) => ops.merge([b, ...files.map((f) => f.data)]));
     },
-    flatten: () => run('Flatteningâ€¦', async () => produceBytes({ flattenForms: true })),
+    flatten: () => run('Flattening…', async () => produceBytes({ flattenForms: true })),
     compress: async () => {
       const before = tab.bytes.length;
-      const ok = await run('Optimizingâ€¦', (b) => ops.compress(b));
+      const ok = await run('Optimizing…', (b) => ops.compress(b));
       if (ok) {
         const after = tabRef.current.bytes.length;
-        toast(`Optimized: ${(before / 1024).toFixed(0)} KB â†’ ${(after / 1024).toFixed(0)} KB`, 'ok');
+        toast(`Optimized: ${(before / 1024).toFixed(0)} KB → ${(after / 1024).toFixed(0)} KB`, 'ok');
       }
     },
     exportText: async () => {
-      setBusy({ msg: 'Extracting textâ€¦' });
+      setBusy({ msg: 'Extracting text…' });
       try {
         const txt = await extractText(pdf!);
         await window.acro.saveFile(downloadName(tab.name, '', 'txt'), new TextEncoder().encode(txt), [{ name: 'Text', extensions: ['txt'] }]);
@@ -522,7 +530,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
       }
     },
     saveCopyFlattened: async () => {
-      setBusy({ msg: 'Preparingâ€¦' });
+      setBusy({ msg: 'Preparing…' });
       try {
         const out = await produceBytes({ flattenForms: true });
         await window.acro.saveFile(downloadName(tab.name, ' (flattened)'), out);
@@ -761,13 +769,16 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
             <button className="icon-btn" title="Stamps" onClick={() => setSigDialog({ tab: 'stamp' })}>
               <Icon name="stamp" />
             </button>
+            <button className="icon-btn" title="Watermark" onClick={() => setToolDialog('watermark')}>
+              <Icon name="water" />
+            </button>
           </div>
           <div className="tb-spacer" />
           <div className="tb-group">
             <button className="icon-btn" title="Zoom out (Ctrl -)" onClick={() => zoomTo(zoom / 1.2)}>
               <Icon name="zoomOut" />
             </button>
-            <button className="zoom-label" title="Fit width (Ctrl 0) â€” click again for fit page" onClick={() => (Math.abs(zoom - 1) < 0.01 ? fitWidth() : fitPage())}>
+            <button className="zoom-label" title="Fit width (Ctrl 0) — click again for fit page" onClick={() => (Math.abs(zoom - 1) < 0.01 ? fitWidth() : fitPage())}>
               {Math.round(zoom * 100)}%
             </button>
             <button className="icon-btn" title="Zoom in (Ctrl +)" onClick={() => zoomTo(zoom * 1.2)}>
@@ -786,7 +797,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
                 if (n >= 1 && n <= (pdf?.numPages || 0)) scrollTo(n - 1);
               }}
             />
-            <span className="muted">/ {pdf?.numPages || 'â€¦'}</span>
+            <span className="muted">/ {pdf?.numPages || '…'}</span>
           </div>
           <div className="tb-group rel">
             <button className={`tb-btn ${toolsMenu ? 'on' : ''}`} onClick={() => setToolsMenu((v) => !v)}>
@@ -796,26 +807,26 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
               <div className="menu" onMouseLeave={() => setToolsMenu(false)} onClick={() => setToolsMenu(false)}>
                 <div className="menu-head">Organize</div>
                 <button onClick={quickActions.combine}><Icon name="merge" /> Combine (append PDFs)</button>
-                <button onClick={() => setToolDialog('split')}><Icon name="split" /> Splitâ€¦</button>
+                <button onClick={() => setToolDialog('split')}><Icon name="split" /> Split…</button>
                 <button onClick={() => setPanel('pages')}><Icon name="pages" /> Organize pages</button>
                 <div className="menu-head">Protect & finish</div>
                 <button onClick={() => setTool('redact')}><Icon name="redact" /> Redact</button>
-                <button onClick={() => setToolDialog('watermark')}><Icon name="water" /> Watermarkâ€¦</button>
-                <button onClick={() => setToolDialog('numbers')}><Icon name="hash" /> Page numbers / Batesâ€¦</button>
+                <button onClick={() => setToolDialog('watermark')}><Icon name="water" /> Watermark…</button>
+                <button onClick={() => setToolDialog('numbers')}><Icon name="hash" /> Page numbers / Bates…</button>
                 <button onClick={quickActions.flatten}><Icon name="form" /> Flatten forms & markup</button>
                 <button onClick={quickActions.compress}><Icon name="compress" /> Optimize file size</button>
                 <div className="menu-head">Convert</div>
-                <button onClick={() => setToolDialog('toWord')}><Icon name="word" /> Export to Wordâ€¦</button>
+                <button onClick={() => setToolDialog('toWord')}><Icon name="word" /> Export to Word…</button>
                 <button onClick={() => exportOffice('excel')}><Icon name="excel" /> Export to Excel</button>
                 <button onClick={() => exportOffice('ppt')}><Icon name="ppt" /> Export to PowerPoint</button>
                 <div className="menu-head">Scan & export</div>
-                <button onClick={() => setToolDialog('ocr')}><Icon name="ocr" /> Recognize text (OCR)â€¦</button>
-                <button onClick={() => setToolDialog('exportImages')}><Icon name="image" /> Export as imagesâ€¦</button>
+                <button onClick={() => setToolDialog('ocr')}><Icon name="ocr" /> Recognize text (OCR)…</button>
+                <button onClick={() => setToolDialog('exportImages')}><Icon name="image" /> Export as images…</button>
                 <button onClick={quickActions.exportText}><Icon name="file" /> Export as text</button>
-                <button onClick={quickActions.saveCopyFlattened}><Icon name="download" /> Save flattened copyâ€¦</button>
+                <button onClick={quickActions.saveCopyFlattened}><Icon name="download" /> Save flattened copy…</button>
                 <div className="menu-head">Document</div>
-                <button onClick={() => setToolDialog('properties')}><Icon name="info" /> Propertiesâ€¦</button>
-                <button onClick={() => save(true)}><Icon name="save" /> Save asâ€¦</button>
+                <button onClick={() => setToolDialog('properties')}><Icon name="info" /> Properties…</button>
+                <button onClick={() => save(true)}><Icon name="save" /> Save as…</button>
               </div>
             )}
           </div>
@@ -831,6 +842,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
           onDelete={() => selected && api.removeAnnot(selected.id)}
           pendingImage={pendingImage}
           redactCount={redactCount}
+          fonts={fonts}
         />
 
         <div className="workspace">
@@ -855,7 +867,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
               {panel === 'search' && (
                 <div className="search-panel">
                   <div className="search-row">
-                    <input className="search-input" placeholder="Find in documentâ€¦" defaultValue={query} onKeyDown={(e) => {
+                    <input className="search-input" placeholder="Find in document…" defaultValue={query} onKeyDown={(e) => {
                       e.stopPropagation();
                       if (e.key === 'Enter') {
                         const v = (e.target as HTMLInputElement).value;
@@ -887,7 +899,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
                     ))}
                   </div>
                   {pdf && hits.length === 0 && query && (
-                    <p className="muted small-text">No matches. If this is a scanned document, run <b>All tools â†’ Recognize text (OCR)</b> first.</p>
+                    <p className="muted small-text">No matches. If this is a scanned document, run <b>All tools → Recognize text (OCR)</b> first.</p>
                   )}
                 </div>
               )}
@@ -899,12 +911,12 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
                       setSelected(a.id);
                       scrollTo(a.page);
                     }}>
-                      <span className="muted">p.{a.page + 1} Â· new</span> {(a as any).text || <i>(empty)</i>}
+                      <span className="muted">p.{a.page + 1} · new</span> {(a as any).text || <i>(empty)</i>}
                     </button>
                   ))}
                   {existingComments.map((c, i) => (
                     <button key={i} className="result" onClick={() => scrollTo(c.page)}>
-                      <span className="muted">p.{c.page + 1}{c.author ? ` Â· ${c.author}` : ''}</span> {c.text}
+                      <span className="muted">p.{c.page + 1}{c.author ? ` · ${c.author}` : ''}</span> {c.text}
                     </button>
                   ))}
                   {!existingComments.length && !tab.annots.some((a) => a.type === 'note') && <p className="muted small-text">No comments yet. Use the comment tool (N).</p>}
@@ -918,7 +930,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
             {pdf ? (
               sizes.map((s, i) => <PageView key={`${loadId}-${i}`} pdf={pdf} index={i} size={s} rev={loadId} registerEl={registerEl} />)
             ) : (
-              <div className="empty-state">Openingâ€¦</div>
+              <div className="empty-state">Opening…</div>
             )}
           </div>
         </div>
@@ -962,6 +974,7 @@ function ContextBar({
   onDelete,
   pendingImage,
   redactCount,
+  fonts,
 }: {
   tool: Tool;
   style: StyleState;
@@ -971,6 +984,7 @@ function ContextBar({
   onDelete: () => void;
   pendingImage: PendingImage | null;
   redactCount: number;
+  fonts: string[];
 }) {
   const sel: any = selected;
   const hasColor = selected ? 'color' in selected && selected.type !== 'whiteout' : ['ink', 'rect', 'ellipse', 'line', 'arrow', 'text', 'underline', 'strike', 'mark'].includes(tool);
@@ -988,12 +1002,12 @@ function ContextBar({
   };
 
   const hints: Partial<Record<Tool, string>> = {
-    select: 'Select & copy text Â· click markup to move/resize Â· fill form fields directly on the page',
+    select: 'Select & copy text · click markup to move/resize · fill form fields directly on the page',
     editText: 'Every outlined piece of text can be edited: click it, type, then Save. It keeps the original font and size. No outlines? The page is a scan; run All tools → OCR first.',
-    highlight: 'Select text to highlight it â€” or drag a box on scanned pages.',
+    highlight: 'Select text to highlight it — or drag a box on scanned pages.',
     underline: 'Select text to underline it.',
     strike: 'Select text to strike it through.',
-    whiteout: 'Drag to cover content with white (visual only â€” use Redact to truly remove).',
+    whiteout: 'Drag to cover content with white (visual only — use Redact to truly remove).',
     redact: `Drag over anything sensitive. On save, marked pages are rebuilt so the content is gone for good.${redactCount ? ` (${redactCount} marked)` : ''}`,
     note: 'Click to drop a comment.',
     mark: 'Click the centre of a box to tick it. Works on printed boxes that are not real form fields.',
@@ -1015,50 +1029,129 @@ function ContextBar({
         </div>
       )}
       {hasWidth && (
-        <label className="ctx-field">
-          Width
-          <input
-            type="range"
-            min={0.5}
-            max={12}
-            step={0.5}
-            value={sel?.width ?? style.width}
-            onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, width: +e.target.value }) as Annot) : setStyle({ ...style, width: +e.target.value }))}
-          />
-        </label>
+        <>
+          <div className="ctx-group" role="group" aria-label="Thickness">
+            <span className="ctx-cap">Thickness</span>
+            {[0.75, 1.5, 3, 5, 8].map((w) => (
+              <button
+                key={w}
+                className={`thick ${(sel?.width ?? style.width) === w ? 'on' : ''}`}
+                title={`${w} pt`}
+                onClick={() => (selected ? onChangeSelected((a) => ({ ...a, width: w }) as Annot) : setStyle({ ...style, width: w }))}
+              >
+                <span style={{ height: Math.max(1, w * 0.9), background: color }} />
+              </button>
+            ))}
+            <input
+              type="number"
+              className="num"
+              min={0.25}
+              max={40}
+              step={0.25}
+              value={sel?.width ?? style.width}
+              aria-label="Thickness in points"
+              onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, width: +e.target.value }) as Annot) : setStyle({ ...style, width: +e.target.value }))}
+            />
+          </div>
+          <div className="seg small" role="group" aria-label="Line style">
+            {[false, true].map((d) => (
+              <button
+                key={String(d)}
+                className={!!(sel ? sel.dash : style.dash) === d ? 'on' : ''}
+                onClick={() => (selected ? onChangeSelected((a) => ({ ...a, dash: d }) as Annot) : setStyle({ ...style, dash: d }))}
+              >
+                {d ? 'Dashed' : 'Solid'}
+              </button>
+            ))}
+          </div>
+        </>
       )}
       {hasFill && (
-        <label className="ctx-field">
+        <div className="ctx-group" role="group" aria-label="Fill">
+          <span className="ctx-cap">Fill</span>
+          {[null, '#ffffff', '#fff3b0', '#d6e6fb', '#fbd9e0', '#d8efd4', '#111111'].map((f) => {
+            const cur = sel ? sel.fill : style.fill;
+            return (
+              <button
+                key={String(f)}
+                className={`swatch ${cur === f ? 'on' : ''} ${f ? '' : 'none'}`}
+                style={f ? { background: f } : undefined}
+                title={f ? `Fill ${f}` : 'No fill'}
+                aria-label={f ? `Fill ${f}` : 'No fill'}
+                onClick={() => (selected ? onChangeSelected((a) => ({ ...a, fill: f }) as Annot) : setStyle({ ...style, fill: f }))}
+              />
+            );
+          })}
           <input
-            type="checkbox"
-            checked={!!(sel ? sel.fill : style.fill)}
-            onChange={(e) => {
-              const f = e.target.checked ? '#fff3b0' : null;
-              selected ? onChangeSelected((a) => ({ ...a, fill: f }) as Annot) : setStyle({ ...style, fill: f });
-            }}
+            type="color"
+            title="Custom fill"
+            value={(sel ? sel.fill : style.fill) || '#ffffff'}
+            onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, fill: e.target.value }) as Annot) : setStyle({ ...style, fill: e.target.value }))}
           />
-          Fill
-        </label>
+        </div>
       )}
       {hasFont && (
         <>
-          <label className="ctx-field">
-            Size
-            <input
-              type="number"
-              min={4}
-              max={96}
-              step={0.5}
-              value={sel?.fontSize ?? style.fontSize}
-              onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, fontSize: +e.target.value }) as Annot) : setStyle({ ...style, fontSize: +e.target.value }))}
-            />
-          </label>
-          {selected && (
-            <button className={`small ${sel.bold ? 'on' : ''}`} onClick={() => onChangeSelected((a) => ({ ...a, bold: !(a as any).bold }) as Annot)}>
-              <b>B</b>
-            </button>
-          )}
+          <select
+            className="font-select"
+            value={sel?.family ?? style.family}
+            aria-label="Font"
+            style={{ fontFamily: `"${sel?.family ?? style.family}"` }}
+            onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, family: e.target.value }) as Annot) : setStyle({ ...style, family: e.target.value }))}
+          >
+            {!fonts.includes(sel?.family ?? style.family) && <option value={sel?.family ?? style.family}>{sel?.family ?? style.family}</option>}
+            {fonts.map((f) => (
+              <option key={f} value={f} style={{ fontFamily: `"${f}"` }}>
+                {f}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            className="num"
+            min={4}
+            max={144}
+            step={0.5}
+            value={sel?.fontSize ?? style.fontSize}
+            aria-label="Font size"
+            onChange={(e) => (selected ? onChangeSelected((a) => ({ ...a, fontSize: +e.target.value }) as Annot) : setStyle({ ...style, fontSize: +e.target.value }))}
+          />
+          <button
+            className={`small style-btn ${(sel ? sel.bold : style.bold) ? 'on' : ''}`}
+            aria-label="Bold"
+            onClick={() => (selected ? onChangeSelected((a) => ({ ...a, bold: !(a as any).bold }) as Annot) : setStyle({ ...style, bold: !style.bold }))}
+          >
+            <b>B</b>
+          </button>
+          <button
+            className={`small style-btn ${(sel ? sel.italic : style.italic) ? 'on' : ''}`}
+            aria-label="Italic"
+            onClick={() => (selected ? onChangeSelected((a) => ({ ...a, italic: !(a as any).italic }) as Annot) : setStyle({ ...style, italic: !style.italic }))}
+          >
+            <i>I</i>
+          </button>
         </>
+      )}
+      {selected && (selected.type === 'image' || selected.type === 'text') && (
+        <div className="ctx-group" role="group" aria-label="Rotate">
+          <span className="ctx-cap">Rotate</span>
+          <button className="icon-btn" title="Rotate left 90°" onClick={() => onChangeSelected((a) => ({ ...a, rotation: ((((a as any).rotation || 0) - 90) % 360 + 360) % 360 }) as Annot)}>
+            <Icon name="rotL" size={16} />
+          </button>
+          <button className="icon-btn" title="Rotate right 90°" onClick={() => onChangeSelected((a) => ({ ...a, rotation: (((a as any).rotation || 0) + 90) % 360 }) as Annot)}>
+            <Icon name="rotR" size={16} />
+          </button>
+          <input
+            type="number"
+            className="num"
+            min={-360}
+            max={360}
+            value={sel.rotation || 0}
+            aria-label="Angle in degrees"
+            onChange={(e) => onChangeSelected((a) => ({ ...a, rotation: ((+e.target.value % 360) + 360) % 360 }) as Annot)}
+          />
+          <span className="ctx-cap">°</span>
+        </div>
       )}
       {isMark && (
         <>

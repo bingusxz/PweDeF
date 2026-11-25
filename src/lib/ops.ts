@@ -1,5 +1,5 @@
 // Page-level operations (Acrobat "Organize Pages", "Combine", "Split", watermark, numbering...).
-import { PDFDocument, StandardFonts, rgb, degrees, PageSizes } from 'pdf-lib';
+import { PDFArray, PDFDocument, StandardFonts, rgb, degrees, PageSizes } from 'pdf-lib';
 import { hexToRgb01, winAnsiSafe } from './util';
 
 const load = (b: Uint8Array) => PDFDocument.load(b, { updateMetadata: false });
@@ -107,37 +107,116 @@ export function parseRanges(s: string, n: number): number[][] {
     .filter((g) => g.length);
 }
 
+export type WatermarkPosition = 'center' | 'tile' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top' | 'bottom';
+
 export interface WatermarkOpts {
+  kind?: 'text' | 'image';
   text: string;
   color: string;
   opacity: number;
   size: number;
+  /** legacy: diagonal = corner-to-corner angle */
   diagonal: boolean;
+  /** degrees counter-clockwise; overrides `diagonal` when set */
+  angle?: number;
+  family?: string;
+  bold?: boolean;
+  italic?: boolean;
+  /** installed font bytes for `family` (filled in by the caller) */
+  fontBytes?: Uint8Array | null;
+  /** image watermark as data URL (PNG/JPEG) */
+  image?: string;
+  /** image width as % of page width */
+  imageScale?: number;
+  position?: WatermarkPosition;
+  /** "" = all pages, or ranges like "1-3, 5" */
+  pages?: string;
+  /** behind the page content instead of on top */
+  behind?: boolean;
 }
 
 export async function watermark(bytes: Uint8Array, o: WatermarkOpts) {
   const doc = await load(bytes);
-  const font = await doc.embedFont(StandardFonts.HelveticaBold);
-  const text = winAnsiSafe(o.text);
-  for (const page of doc.getPages()) {
-    const { width, height } = page.getSize();
-    const tw = font.widthOfTextAtSize(text, o.size);
-    const ang = o.diagonal ? Math.atan2(height, width) : 0;
-    const cx = width / 2;
-    const cy = height / 2;
-    const x = cx - (Math.cos(ang) * tw) / 2 + (Math.sin(ang) * o.size) / 3;
-    const y = cy - (Math.sin(ang) * tw) / 2 - (Math.cos(ang) * o.size) / 3;
-    page.drawText(text, {
-      x,
-      y,
-      size: o.size,
-      font,
-      color: rgb(...hexToRgb01(o.color)),
-      opacity: o.opacity,
-      rotate: degrees((ang * 180) / Math.PI),
-    });
+  const kind = o.kind || 'text';
+  const pos: WatermarkPosition = o.position || 'center';
+  const total = doc.getPageCount();
+  const targets = o.pages?.trim() ? [...new Set(parseRanges(o.pages, total).flat())] : doc.getPageIndices();
+
+  // text resources
+  let font = null as Awaited<ReturnType<PDFDocument['embedFont']>> | null;
+  let text = o.text;
+  if (kind === 'text') {
+    if (o.fontBytes) {
+      doc.registerFontkit((await import('@pdf-lib/fontkit')).default);
+      font = await doc.embedFont(o.fontBytes, { subset: true });
+    } else {
+      font = await doc.embedFont(o.italic ? (o.bold ? StandardFonts.HelveticaBoldOblique : StandardFonts.HelveticaOblique) : o.bold === false ? StandardFonts.Helvetica : StandardFonts.HelveticaBold);
+      text = winAnsiSafe(text);
+    }
+  }
+  // image resources
+  let img = null as Awaited<ReturnType<PDFDocument['embedPng']>> | null;
+  if (kind === 'image' && o.image) {
+    const b = Uint8Array.from(atob(o.image.split(',')[1]), (ch) => ch.charCodeAt(0));
+    img = o.image.startsWith('data:image/jpeg') ? await doc.embedJpg(b) : await doc.embedPng(b);
+  }
+  if (kind === 'text' && !text.trim()) return save(doc);
+  if (kind === 'image' && !img) return save(doc);
+
+  for (const i of targets) {
+    const page = doc.getPage(i);
+    const { width: pw, height: ph } = page.getSize();
+    const angDeg = o.angle ?? (o.diagonal ? (Math.atan2(ph, pw) * 180) / Math.PI : 0);
+    const t = (angDeg * Math.PI) / 180;
+    // object size (unrotated)
+    let w: number, h: number;
+    if (kind === 'text') {
+      w = font!.widthOfTextAtSize(text, o.size);
+      h = o.size;
+    } else {
+      w = (pw * (o.imageScale ?? 40)) / 100;
+      h = (w * img!.height) / img!.width;
+    }
+    // rotated bounding box half-extents, to keep corner placements on the page
+    const ex = (Math.abs(Math.cos(t)) * w + Math.abs(Math.sin(t)) * h) / 2;
+    const ey = (Math.abs(Math.sin(t)) * w + Math.abs(Math.cos(t)) * h) / 2;
+    const m = 28;
+    const centres: { x: number; y: number }[] = [];
+    if (pos === 'tile') {
+      const sx = ex * 2 + Math.max(40, h * 1.5);
+      const sy = ey * 2 + Math.max(40, h * 2);
+      for (let row = 0, y = sy / 2; y < ph + sy; y += sy, row++)
+        for (let x = (row % 2 ? sx : sx / 2) - sx / 2; x < pw + sx; x += sx) centres.push({ x, y });
+    } else {
+      const x = pos.endsWith('left') ? m + ex : pos.endsWith('right') ? pw - m - ex : pw / 2;
+      const y = pos.startsWith('top') ? ph - m - ey : pos.startsWith('bottom') ? m + ey : ph / 2;
+      centres.push({ x, y });
+    }
+    for (const c of centres) {
+      // origin = centre minus the rotated half-size vector
+      const ox = c.x - (Math.cos(t) * w) / 2 + (Math.sin(t) * h) / 2;
+      const oy = c.y - (Math.sin(t) * w) / 2 - (Math.cos(t) * h) / 2;
+      if (kind === 'text') {
+        // drawText's y is the baseline: lift by the descent (~0.22em) so the glyphs sit centred
+        const bx = ox - Math.sin(t) * h * 0.22; // along the rotated "up" vector (-sin t, cos t)
+        const by = oy + Math.cos(t) * h * 0.22;
+        page.drawText(text, { x: bx, y: by, size: o.size, font: font!, color: rgb(...hexToRgb01(o.color)), opacity: o.opacity, rotate: degrees(angDeg) });
+      } else {
+        page.drawImage(img!, { x: ox, y: oy, width: w, height: h, opacity: o.opacity, rotate: degrees(angDeg) });
+      }
+    }
+    if (o.behind) sendLastStreamToBack(page);
   }
   return save(doc);
+}
+
+/** Moves the content stream pdf-lib just appended to the front, so it paints under the page. */
+function sendLastStreamToBack(page: ReturnType<PDFDocument['getPage']>) {
+  const contents = page.node.Contents();
+  if (!(contents instanceof PDFArray) || contents.size() < 2) return;
+  const last = contents.get(contents.size() - 1);
+  contents.remove(contents.size() - 1);
+  contents.insert(0, last);
 }
 
 export interface NumberOpts {

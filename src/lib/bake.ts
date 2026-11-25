@@ -207,6 +207,14 @@ export async function bake(
   return doc.save({ useObjectStreams: true });
 }
 
+/** Rotate point p around c by `deg` clockwise as seen on screen (= negative angle in PDF's y-up space). */
+function turn(p: { x: number; y: number }, c: { x: number; y: number }, deg: number) {
+  if (!deg) return p;
+  const t = (-deg * Math.PI) / 180;
+  const dx = p.x - c.x, dy = p.y - c.y;
+  return { x: c.x + dx * Math.cos(t) - dy * Math.sin(t), y: c.y + dx * Math.sin(t) + dy * Math.cos(t) };
+}
+
 function rank(a: Annot) {
   if (a.type === 'whiteout') return 0;
   if (a.type === 'replace') return 1;
@@ -264,6 +272,7 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
           thickness: a.width,
           color: col(a.color),
           lineCap: LineCapStyle.Round,
+          dashArray: a.dash ? [a.width * 3, a.width * 2] : undefined,
         });
       }
       break;
@@ -276,6 +285,7 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         height: r.h,
         borderColor: col(a.color),
         borderWidth: a.width,
+        borderDashArray: a.dash ? [a.width * 3, a.width * 2] : undefined,
         color: a.fill ? col(a.fill) : undefined,
       });
       break;
@@ -289,6 +299,7 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         yScale: r.h / 2,
         borderColor: col(a.color),
         borderWidth: a.width,
+        borderDashArray: a.dash ? [a.width * 3, a.width * 2] : undefined,
         color: a.fill ? col(a.fill) : undefined,
       });
       break;
@@ -298,7 +309,7 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
       const s = P(a.x1, a.y1);
       const e = P(a.x2, a.y2);
       const color = col(a.color);
-      page.drawLine({ start: s, end: e, thickness: a.width, color, lineCap: LineCapStyle.Round });
+      page.drawLine({ start: s, end: e, thickness: a.width, color, lineCap: LineCapStyle.Round, dashArray: a.dash ? [a.width * 3, a.width * 2] : undefined });
       if (a.type === 'arrow') {
         const ang = Math.atan2(e.y - s.y, e.x - s.x);
         const len = Math.max(8, a.width * 4);
@@ -331,8 +342,9 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         if (!line) return;
         const baseline =
           a.type === 'replace' && a.baseline !== undefined ? a.baseline + i * lh : a.y + 2 + i * lh + a.fontSize * 0.95;
-        const o = P(x0, baseline);
-        page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot) });
+        const spin = a.type === 'text' ? a.rotation || 0 : 0;
+        const o = turn(P(x0, baseline), P(a.x + a.w / 2, a.y + a.h / 2), spin);
+        page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot - spin) });
       });
       break;
     }
@@ -343,8 +355,9 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         img = a.dataUrl.startsWith('data:image/jpeg') ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
         c.imageCache.set(a.dataUrl, img);
       }
-      const o = P(a.x, a.y + a.h);
-      page.drawImage(img, { x: o.x, y: o.y, width: a.w, height: a.h, rotate: degrees(rot) });
+      const spin = a.rotation || 0;
+      const o = turn(P(a.x, a.y + a.h), P(a.x + a.w / 2, a.y + a.h / 2), spin);
+      page.drawImage(img, { x: o.x, y: o.y, width: a.w, height: a.h, rotate: degrees(rot - spin) });
       break;
     }
     case 'mark': {

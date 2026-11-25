@@ -242,6 +242,12 @@ function matchPdfFont(pdfName) {
 }
 
 ipcMain.handle('fonts:match', (_e, pdfName) => matchPdfFont(pdfName));
+// every installed family that has a regular style, for the font menu
+ipcMain.handle('fonts:list', () => {
+  const fams = new Set();
+  for (const v of buildFontIndex().values()) if (!v.bold && !v.italic && v.family) fams.add(v.family);
+  return [...fams].sort((a, b) => a.localeCompare(b));
+});
 ipcMain.handle('fonts:load', async (_e, { family, bold, italic }) => {
   const idx = buildFontIndex();
   const k = normFont(family);

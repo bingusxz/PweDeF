@@ -214,5 +214,26 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
   await doc.destroy();
 }
 
+// ---- watermark options: pages, behind content, tiling, image ----
+{
+  const wmBehind = await ops.watermark(base, { text: 'DRAFT', size: 40, color: '#ff0000', opacity: 0.2, diagonal: false, angle: 30, pages: '2', behind: true });
+  const t = await text(wmBehind);
+  check(!t[0].includes('DRAFT') && t[1].includes('DRAFT') && !t[2].includes('DRAFT'), 'watermark: only the chosen page (2)');
+  const wd = await PDFDocument.load(wmBehind);
+  const contents = wd.getPage(1).node.Contents() as any;
+  const firstStream = wd.context.lookup(contents.get(0)) as any;
+  const { decodePDFRawStream } = await import('pdf-lib');
+  const firstOps = new TextDecoder().decode(decodePDFRawStream(firstStream).decode());
+  check(/Tj/.test(firstOps) && firstOps.includes('BT'), 'watermark: "behind" paints before the page content');
+  const tiled = await text(await ops.watermark(base, { text: 'MF', size: 30, color: '#000000', opacity: 0.1, diagonal: false, angle: 45, position: 'tile' }));
+  check((tiled[0].match(/MF/g) || []).length >= 6, 'watermark: tile repeats across the page');
+  const png1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  const withImg = await ops.watermark(base, { kind: 'image', image: png1, imageScale: 30, text: '', size: 10, color: '#000', opacity: 0.3, diagonal: false, angle: 0 });
+  const imgDoc = await pdfjs.getDocument({ data: withImg.slice(), isEvalSupported: false }).promise;
+  const ol = await (await imgDoc.getPage(1)).getOperatorList();
+  check(ol.fnArray.includes(pdfjs.OPS.paintImageXObject), 'watermark: image/logo watermark drawn');
+  await imgDoc.destroy();
+}
+
 console.log(failures ? `\n${failures} FAILED` : '\nAll engine tests passed');
 process.exit(failures ? 1 : 0);

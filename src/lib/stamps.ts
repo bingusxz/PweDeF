@@ -60,7 +60,12 @@ export function stampImage(label: string, color: string, sub?: string) {
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d')!;
   ctx.font = `bold ${36 * scale}px Arial, sans-serif`;
-  const tw = ctx.measureText(label).width;
+  let tw = ctx.measureText(label).width;
+  if (sub) {
+    // the name/date line must fit inside the border too
+    ctx.font = `${16 * scale}px Arial, sans-serif`;
+    tw = Math.max(tw, ctx.measureText(sub).width);
+  }
   const w = tw + 48 * scale;
   const h = (sub ? 84 : 64) * scale;
   c.width = w;
@@ -80,7 +85,28 @@ export function stampImage(label: string, color: string, sub?: string) {
     ctx.font = `${16 * scale}px Arial, sans-serif`;
     ctx.fillText(sub, w / 2, 66 * scale);
   }
+  inkTexture(ctx, c.width, c.height, label.length);
   return { dataUrl: c.toDataURL('image/png'), w: w / scale, h: h / scale };
+}
+
+/** Uneven rubber-stamp ink: deterministic per stamp so the same stamp always looks the same. */
+function inkTexture(ctx: CanvasRenderingContext2D, w: number, h: number, seed: number) {
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  let s = 9301 + seed * 49297;
+  const rnd = () => ((s = (s * 233280 + 49297) % 2147483647) / 2147483647);
+  for (let y = 0; y < h; y += 2)
+    for (let x = 0; x < w; x += 2) {
+      const r = rnd();
+      // a few bare specks and a soft overall unevenness
+      const f = r < 0.035 ? 0.15 : 0.78 + r * 0.22;
+      for (let dy = 0; dy < 2 && y + dy < h; dy++)
+        for (let dx = 0; dx < 2 && x + dx < w; dx++) {
+          const i = ((y + dy) * w + (x + dx)) * 4 + 3;
+          d[i] = d[i] * f;
+        }
+    }
+  ctx.putImageData(img, 0, 0);
 }
 
 // ---- saved signatures (per machine) ----

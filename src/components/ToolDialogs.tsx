@@ -1,8 +1,10 @@
 // "All tools" dialogs: watermark, page numbers / Bates, split, properties, OCR, export.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal } from './Modal';
-import type { NumberOpts, WatermarkOpts } from '../lib/ops';
-import { getMetadata } from '../lib/ops';
+import type { NumberOpts, WatermarkOpts, WatermarkPosition } from '../lib/ops';
+import { extractPages, getMetadata, watermark } from '../lib/ops';
+import { loadPdf, renderToCanvas } from '../lib/pdf';
+import { IMAGE_FILTERS } from '../lib/convert';
 
 export type ToolKind = 'watermark' | 'numbers' | 'split' | 'properties' | 'ocr' | 'exportImages' | 'toWord';
 
@@ -31,7 +33,7 @@ export function ToolDialog({
 }) {
   switch (kind) {
     case 'watermark':
-      return <WatermarkDialog onClose={onClose} onRun={h.watermark} />;
+      return <WatermarkDialog onClose={onClose} onRun={h.watermark} bytes={bytes} />;
     case 'numbers':
       return <NumbersDialog onClose={onClose} onRun={h.numbers} />;
     case 'split':
@@ -81,31 +83,204 @@ function Foot({ onClose, onRun, label }: { onClose: () => void; onRun: () => voi
   );
 }
 
-export function WatermarkFields({ o, set }: { o: WatermarkOpts; set: (o: WatermarkOpts) => void }) {
+const WM_POSITIONS: { v: WatermarkPosition; label: string }[] = [
+  { v: 'top-left', label: '↖' },
+  { v: 'top', label: '↑' },
+  { v: 'top-right', label: '↗' },
+  { v: 'bottom-left', label: '↙' },
+  { v: 'center', label: '●' },
+  { v: 'bottom-right', label: '↘' },
+];
+const WM_COLORS = ['#c62828', '#1c2340', '#7a7f93', '#1d4fbf', '#1f7a3b'];
+
+/** Loads the installed font for a text watermark (call before ops.watermark). */
+export async function resolveWatermark(o: WatermarkOpts): Promise<WatermarkOpts> {
+  if (o.kind === 'image' || !o.family) return o;
+  const f = await window.acro.loadFont({ family: o.family, bold: o.bold ?? true, italic: !!o.italic });
+  return { ...o, fontBytes: f?.data ?? null };
+}
+
+export function WatermarkFields({ o, set, fonts, batch }: { o: WatermarkOpts; set: (o: WatermarkOpts) => void; fonts?: string[]; batch?: boolean }) {
+  const kind = o.kind || 'text';
+  const pickImage = async () => {
+    const [f] = await window.acro.openPdfs({ multi: false, title: 'Choose a logo or image', filters: IMAGE_FILTERS });
+    if (!f) return;
+    const bmp = await createImageBitmap(new Blob([f.data as BlobPart]));
+    const c = document.createElement('canvas');
+    c.width = bmp.width;
+    c.height = bmp.height;
+    c.getContext('2d')!.drawImage(bmp, 0, 0);
+    set({ ...o, kind: 'image', image: c.toDataURL('image/png') });
+  };
   return (
-    <div className="form-grid">
-      <label>Text</label>
-      <input value={o.text} onChange={(e) => set({ ...o, text: e.target.value })} />
-      <label>Size</label>
-      <input type="number" min={8} max={200} value={o.size} onChange={(e) => set({ ...o, size: +e.target.value })} />
-      <label>Color</label>
-      <input type="color" value={o.color} onChange={(e) => set({ ...o, color: e.target.value })} />
-      <label>Opacity</label>
-      <input type="range" min={0.05} max={1} step={0.05} value={o.opacity} onChange={(e) => set({ ...o, opacity: +e.target.value })} />
-      <label>Diagonal</label>
-      <input type="checkbox" checked={o.diagonal} onChange={(e) => set({ ...o, diagonal: e.target.checked })} />
+    <div className="wm-fields">
+      <div className="seg">
+        <button className={kind === 'text' ? 'on' : ''} onClick={() => set({ ...o, kind: 'text' })}>
+          Text
+        </button>
+        <button className={kind === 'image' ? 'on' : ''} onClick={() => set({ ...o, kind: 'image' })}>
+          Image or logo
+        </button>
+      </div>
+      <div className="form-grid">
+        {kind === 'text' ? (
+          <>
+            <label>Text</label>
+            <input value={o.text} onChange={(e) => set({ ...o, text: e.target.value })} placeholder="CONFIDENTIAL" />
+            <label>Font</label>
+            <div className="row gap">
+              <select value={o.family || 'Arial'} onChange={(e) => set({ ...o, family: e.target.value })} style={{ flex: 1, fontFamily: `"${o.family || 'Arial'}"` }}>
+                {(fonts?.length ? fonts : ['Arial']).map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+              <button className={`small style-btn ${o.bold !== false ? 'on' : ''}`} aria-label="Bold" onClick={() => set({ ...o, bold: o.bold === false })}>
+                <b>B</b>
+              </button>
+              <button className={`small style-btn ${o.italic ? 'on' : ''}`} aria-label="Italic" onClick={() => set({ ...o, italic: !o.italic })}>
+                <i>I</i>
+              </button>
+            </div>
+            <label>Size</label>
+            <div className="row gap">
+              <input type="range" min={10} max={160} value={o.size} onChange={(e) => set({ ...o, size: +e.target.value })} style={{ flex: 1 }} />
+              <input type="number" className="num" min={6} max={300} value={o.size} onChange={(e) => set({ ...o, size: +e.target.value })} />
+            </div>
+            <label>Colour</label>
+            <div className="swatches">
+              {WM_COLORS.map((c) => (
+                <button key={c} className={`swatch ${o.color === c ? 'on' : ''}`} style={{ background: c }} aria-label={`Colour ${c}`} onClick={() => set({ ...o, color: c })} />
+              ))}
+              <input type="color" value={o.color} onChange={(e) => set({ ...o, color: e.target.value })} title="Custom colour" />
+            </div>
+          </>
+        ) : (
+          <>
+            <label>Image</label>
+            <div className="row gap">
+              {o.image && <img src={o.image} alt="" className="wm-thumb" />}
+              <button onClick={pickImage}>{o.image ? 'Change…' : 'Choose image…'}</button>
+            </div>
+            <label>Width</label>
+            <div className="row gap">
+              <input type="range" min={5} max={100} value={o.imageScale ?? 40} onChange={(e) => set({ ...o, imageScale: +e.target.value })} style={{ flex: 1 }} />
+              <span className="typed">{o.imageScale ?? 40}% of page</span>
+            </div>
+          </>
+        )}
+        <label>Opacity</label>
+        <div className="row gap">
+          <input type="range" min={0.05} max={1} step={0.05} value={o.opacity} onChange={(e) => set({ ...o, opacity: +e.target.value })} style={{ flex: 1 }} />
+          <span className="typed">{Math.round(o.opacity * 100)}%</span>
+        </div>
+        <label>Angle</label>
+        <div className="row gap">
+          {[0, 45, 90, -45].map((a) => (
+            <button key={a} className={`small ${(o.angle ?? (o.diagonal ? 45 : 0)) === a ? 'on' : ''}`} onClick={() => set({ ...o, angle: a, diagonal: false })}>
+              {a}°
+            </button>
+          ))}
+          <input type="number" className="num" min={-180} max={180} value={o.angle ?? (o.diagonal ? 45 : 0)} onChange={(e) => set({ ...o, angle: +e.target.value, diagonal: false })} />
+        </div>
+        <label>Position</label>
+        <div className="row gap">
+          <div className="pos-grid" role="radiogroup" aria-label="Position">
+            {WM_POSITIONS.map((p) => (
+              <button
+                key={p.v}
+                role="radio"
+                aria-checked={(o.position || 'center') === p.v}
+                className={(o.position || 'center') === p.v ? 'on' : ''}
+                onClick={() => set({ ...o, position: p.v })}
+                title={p.v}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <button className={`small ${o.position === 'tile' ? 'on' : ''}`} onClick={() => set({ ...o, position: 'tile' })}>
+            Tile across page
+          </button>
+        </div>
+        <label>Layer</label>
+        <div className="seg small">
+          <button className={!o.behind ? 'on' : ''} onClick={() => set({ ...o, behind: false })}>
+            On top
+          </button>
+          <button className={o.behind ? 'on' : ''} onClick={() => set({ ...o, behind: true })}>
+            Behind content
+          </button>
+        </div>
+        {!batch && (
+          <>
+            <label>Pages</label>
+            <input value={o.pages || ''} placeholder="All pages (or e.g. 1-3, 5)" onChange={(e) => set({ ...o, pages: e.target.value })} />
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-export const defaultWatermark: WatermarkOpts = { text: 'CONFIDENTIAL', size: 64, color: '#c62828', opacity: 0.18, diagonal: true };
+export const defaultWatermark: WatermarkOpts = {
+  kind: 'text',
+  text: 'CONFIDENTIAL',
+  size: 64,
+  color: '#c62828',
+  opacity: 0.18,
+  diagonal: false,
+  angle: 45,
+  family: 'Arial',
+  bold: true,
+  position: 'center',
+  imageScale: 40,
+};
 export const defaultNumbers: NumberOpts = { format: 'Page {n} of {total}', position: 'bottom-center', size: 10, start: 1 };
 
-function WatermarkDialog({ onClose, onRun }: { onClose: () => void; onRun: (o: WatermarkOpts) => void }) {
+function WatermarkDialog({ onClose, onRun, bytes }: { onClose: () => void; onRun: (o: WatermarkOpts) => void; bytes: Uint8Array }) {
   const [o, set] = useState(defaultWatermark);
+  const [fonts, setFonts] = useState<string[]>([]);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    window.acro.listFonts().then(setFonts).catch(() => {});
+  }, []);
+  // live preview of page 1 with the watermark applied
+  useEffect(() => {
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        const first = await extractPages(bytes, [0]);
+        const out = await watermark(first, await resolveWatermark({ ...o, pages: '' }));
+        const doc = await loadPdf(out);
+        const page = await doc.getPage(1);
+        const base = page.getViewport({ scale: 1 });
+        if (alive && canvas.current) await renderToCanvas(page, 300 / base.width, canvas.current);
+        doc.destroy();
+      } catch {
+        /* preview only */
+      }
+    }, 220);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [o, bytes]);
   return (
-    <Modal title="Add watermark" onClose={onClose} footer={<Foot onClose={onClose} onRun={() => onRun(o)} label="Apply to all pages" />}>
-      <WatermarkFields o={o} set={set} />
+    <Modal
+      title="Watermark"
+      onClose={onClose}
+      width={820}
+      footer={<Foot onClose={onClose} onRun={() => onRun(o)} label={o.pages?.trim() ? `Apply to pages ${o.pages}` : 'Apply to all pages'} />}
+    >
+      <div className="wm-layout">
+        <WatermarkFields o={o} set={set} fonts={fonts} />
+        <figure className="wm-preview">
+          <canvas ref={canvas} />
+          <figcaption>Preview: page 1</figcaption>
+        </figure>
+      </div>
     </Modal>
   );
 }
