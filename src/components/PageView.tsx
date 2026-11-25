@@ -269,6 +269,27 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     }
   };
 
+  /** Indices of the fragments forming one visual run with item `i`: same line, font and size, gaps under ~a word space. */
+  const joinLineRun = (i: number): number[] => {
+    const items = textItems.current;
+    const me = items[i];
+    if (!me) return [i];
+    const g = itemGeom(me);
+    const same = items
+      .map((it, k) => ({ it, k }))
+      .filter(({ it }) => it.str && it.fontName === me.fontName && it.str.length >= 0)
+      .map(({ it, k }) => ({ k, q: itemGeom(it) }))
+      .filter(({ q }) => Math.abs(q.baseline - g.baseline) < 0.5 && Math.abs(q.size - g.size) < 0.2)
+      .sort((a, b) => a.q.startX - b.q.startX);
+    const pos = same.findIndex((s) => s.k === i);
+    if (pos < 0) return [i];
+    const maxGap = g.size * 0.45;
+    let lo = pos, hi = pos;
+    while (lo > 0 && same[lo].q.startX - (same[lo - 1].q.startX + same[lo - 1].q.w) < maxGap) lo--;
+    while (hi < same.length - 1 && same[hi + 1].q.startX - (same[hi].q.startX + same[hi].q.w) < maxGap) hi++;
+    return same.slice(lo, hi + 1).map((s) => s.k);
+  };
+
   /** Snapshot + text runs inside a Move selection. */
   const captureArea = (r: Rect) => {
     const canvas = canvasRef.current!;
@@ -328,8 +349,11 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     ctx.font = `${a.italic ? 'italic ' : ''}${a.bold ? 700 : 400} ${a.fontSize}px "${a.family || 'Arial'}", sans-serif`;
     // compare like with like: both strings measured with the same font, so measuring
     // differences cancel out and only a real change in length moves the neighbours
-    const delta = ctx.measureText(a.text).width - ctx.measureText(a.origText ?? src.str).width;
-    const origEnd = a.startX + src.width;
+    const ws = docWordSpacing(a);
+    const spacesIn = (s: string) => (s.match(/ /g) || []).length;
+    const orig = a.origText ?? src.str;
+    const delta = ctx.measureText(a.text).width + spacesIn(a.text) * ws - (ctx.measureText(orig).width + spacesIn(orig) * ws);
+    const origEnd = a.orig ? a.orig.x + a.orig.w - 1 : a.startX + src.width;
     // neighbours on the same baseline, to the right, contiguous (gaps under 3em)
     const row = textItems.current
       .map((it, i) => ({ it, i, g: it.str?.trim() ? itemGeom(it) : null }))
@@ -418,10 +442,25 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     const span = (e.target as HTMLElement).closest('span') as HTMLElement | null;
     if (!span || !textRef.current!.contains(span) || !span.textContent?.trim()) return;
     const r = span.getBoundingClientRect();
-    const [x, y] = toPage(r.left, r.top);
-    const w = r.width / zoom;
-    const h = r.height / zoom;
-    const item = textItems.current[Number(span.dataset.item)];
+    const [cx, cy] = toPage(r.left + r.width / 2, r.top + r.height / 2);
+
+    // already editing this text? reopen that edit instead of stacking a second one
+    const existing = ed.annots.find(
+      (a) => a.page === index && a.type === 'replace' && a.orig && cx >= a.orig.x && cx <= a.orig.x + a.orig.w && cy >= a.orig.y && cy <= a.orig.y + a.orig.h,
+    );
+    if (existing) {
+      ed.select(existing.id);
+      ed.edit(existing.id);
+      return;
+    }
+
+    let [x, y] = toPage(r.left, r.top);
+    let w = r.width / zoom;
+    let h = r.height / zoom;
+    const itemIdx = Number(span.dataset.item);
+    const item = textItems.current[itemIdx];
+    let text = span.textContent;
+    let lastIdx = itemIdx;
 
     // exact geometry from the PDF text item (scale-1 page units)
     let fontSize = Math.max(4, Math.round(h * 0.9 * 2) / 2);
@@ -429,15 +468,38 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     let startX: number | undefined;
     let pdfFontName = '';
     if (item) {
-      const vp1 = page.getViewport({ scale: 1 });
-      const tx = pdfjs.Util.transform(vp1.transform, item.transform);
-      fontSize = Math.round(Math.hypot(tx[2], tx[3]) * 100) / 100;
-      baseline = tx[5];
-      startX = tx[4];
-      try {
-        pdfFontName = (page.commonObjs.has(item.fontName) && (page.commonObjs.get(item.fontName) as any)?.name) || '';
-      } catch {
-        pdfFontName = '';
+      const g = itemGeom(item);
+      fontSize = Math.round(g.size * 100) / 100;
+      baseline = g.baseline;
+      startX = g.startX;
+      pdfFontName = fontNameOf(item);
+
+      // Word & co. chop lines into fragments ("Merchant Nam" + "e:"). Join every fragment on
+      // this line that shares the font and size, like Acrobat's text blocks.
+      const run = joinLineRun(itemIdx);
+      if (run.length > 1) {
+        const gs = run.map((i) => itemGeom(textItems.current[i]));
+        const left = Math.min(...gs.map((q) => q.startX));
+        const right = Math.max(...gs.map((q) => q.startX + q.w));
+        text = '';
+        let prevEnd = -1;
+        run.forEach((i, k) => {
+          const s: string = textItems.current[i].str;
+          if (k > 0 && gs[k].startX - prevEnd > g.size * 0.18 && !text.endsWith(' ') && !s.startsWith(' ')) text += ' ';
+          text += s;
+          prevEnd = gs[k].startX + gs[k].w;
+        });
+        startX = left;
+        x = left - 1;
+        w = right - left + 2;
+        y = g.rect.y;
+        h = g.rect.h;
+        lastIdx = run[run.length - 1];
+      } else {
+        x = g.rect.x;
+        y = g.rect.y;
+        w = g.rect.w;
+        h = g.rect.h;
       }
     }
     const bold = /bold|black|heavy|semibold|demi/i.test(pdfFontName);
@@ -445,11 +507,12 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     const fam = (span.style.fontFamily + ' ' + pdfFontName).toLowerCase();
     const font = /courier|mono/.test(fam) ? 'mono' : /times|serif|georgia|garamond|cambria|book/.test(fam) && !/sans/.test(fam) ? 'serif' : 'sans';
     const id = uid();
-    const box = { x: x - 1, y: y - 0.5, w: w + 2, h: h + 1 };
+    const box = { x, y, w, h };
+    const canvas = canvasRef.current!;
     ed.addAnnot(
       {
         id, page: index, type: 'replace', ...box, orig: box,
-        text: span.textContent, origText: span.textContent, fontSize, color: sampleInk(canvasRef.current!, r, wrapRef.current!), bg: '#ffffff', itemIndex: item ? Number(span.dataset.item) : undefined,
+        text, origText: text, origWidth: item ? w - 2 : undefined, fontSize, color: sampleInkRect(canvas, box, canvas.width / size.w), bg: '#ffffff', itemIndex: item ? lastIdx : undefined,
         font, bold, italic, baseline, startX,
       },
       true,
@@ -514,6 +577,21 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       <div className="page-number">{index + 1}</div>
     </div>
   );
+}
+
+const measureCtx = document.createElement('canvas').getContext('2d')!;
+/**
+ * Extra space per word gap the document used on this line (justified paragraphs), in page units.
+ * Same idea as the PDF's own word spacing: the original run's width minus its natural width,
+ * spread over its spaces. The saved PDF applies the identical value (see bake.ts).
+ */
+export function docWordSpacing(a: { origText?: string; origWidth?: number; fontSize: number; family?: string; bold?: boolean; italic?: boolean }) {
+  if (!a.origText || !a.origWidth) return 0;
+  const spaces = (a.origText.match(/ /g) || []).length;
+  if (!spaces) return 0;
+  measureCtx.font = `${a.italic ? 'italic ' : ''}${a.bold ? 700 : 400} ${a.fontSize}px "${a.family || 'Arial'}", sans-serif`;
+  const extra = (a.origWidth - measureCtx.measureText(a.origText).width) / spaces;
+  return Math.max(-a.fontSize * 0.15, Math.min(a.fontSize * 1.5, extra));
 }
 
 /** Same as sampleInk, for a rect in page units (k = canvas pixels per page unit). */
@@ -831,6 +909,8 @@ function HtmlAnnot({ a, draft }: { a: Annot; draft?: boolean }) {
         // sit the preview on the original baseline (≈0.9em ascent) and start x
         st.lineHeight = 1;
         st.padding = `${Math.max(0, (a.baseline - a.y - a.fontSize * 0.9) * z)}px 0 0 ${Math.max(0, (a.startX - a.x) * z)}px`;
+        const ws = docWordSpacing(a);
+        if (ws) st.wordSpacing = ws * z;
       }
       // preview-only: hide exactly the original word (on save it is removed from the PDF itself)
       const cover =

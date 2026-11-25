@@ -343,8 +343,32 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         const baseline =
           a.type === 'replace' && a.baseline !== undefined ? a.baseline + i * lh : a.y + 2 + i * lh + a.fontSize * 0.95;
         const spin = a.type === 'text' ? a.rotation || 0 : 0;
-        const o = turn(P(x0, baseline), P(a.x + a.w / 2, a.y + a.h / 2), spin);
-        page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot - spin) });
+        // Keep the document's own word spacing (justified paragraphs): measure how much wider the
+        // original run was than its natural width, and give every word gap that same extra space.
+        let extra = 0;
+        if (a.type === 'replace' && a.origText && a.origWidth) {
+          const spaces = (a.origText.match(/ /g) || []).length;
+          if (spaces) {
+            extra = (a.origWidth - font.widthOfTextAtSize(safe(a.origText), a.fontSize)) / spaces;
+            extra = Math.max(-a.fontSize * 0.15, Math.min(a.fontSize * 1.5, extra));
+          }
+        }
+        if (!extra) {
+          const o = turn(P(x0, baseline), P(a.x + a.w / 2, a.y + a.h / 2), spin);
+          page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot - spin) });
+          return;
+        }
+        // word by word, advancing by the measured width plus the document's spacing
+        let cx = x0;
+        const spaceW = font.widthOfTextAtSize(' ', a.fontSize);
+        for (const word of line.split(' ')) {
+          if (word) {
+            const o = P(cx, baseline);
+            page.drawText(word, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot) });
+            cx += font.widthOfTextAtSize(word, a.fontSize);
+          }
+          cx += spaceW + extra;
+        }
       });
       break;
     }

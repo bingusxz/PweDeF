@@ -9,3 +9,6 @@ release/
 public/pdfjs/
 .test-out/
 .impeccable/
+
+# test documents stay local (may contain real customer/merchant data)
+docs/*.pdf

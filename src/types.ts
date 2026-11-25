@@ -67,6 +67,8 @@ export type TextAnnot = Base &
     rotation?: number;
     /** the text as it was in the PDF; an edit left unchanged is discarded so the original stays untouched */
     origText?: string;
+    /** width of the original run (page units): used to keep the document's own word spacing (justified lines) */
+    origWidth?: number;
     /** index of the source pdf.js text item (for line reflow) */
     itemIndex?: number;
     /** neighbours pushed along the line when this edit grew; managed automatically */
