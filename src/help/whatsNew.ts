@@ -8,6 +8,8 @@ export const RELEASES: Release[] = [
     items: [
       'The terms of use were updated to make clear that PweDeF is free to use but the code is not free to copy or resell. You will be asked to accept them once.',
       'Help, Open-source licenses can now show the full license text of every component the app uses.',
+      'New home screen: Open PDF on the left, tools in tabs, and your recent files in a table with when you opened them and how big they are. All tools fits on one screen.',
+      'Recent files has a Clear list button, and an x to remove a single file.',
     ],
   },
   {
