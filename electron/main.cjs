@@ -180,8 +180,7 @@ ipcMain.handle('fs:writeInFolder', async (_e, { folder, name, data }) => {
 
 // Printing: the pages arrive as pictures, are laid out one per sheet at their own size, and go to the system print box.
 ipcMain.handle('print:pages', async (_e, pages) => {
-  const css = pages.map((p, i) => `@page p${i} { size: ${p.w}pt ${p.h}pt; margin: 0 } .p${i} { page: p${i}; width: ${p.w}pt; height: ${p.h}pt }`).join('
-');
+  const css = pages.map((p, i) => `@page p${i} { size: ${p.w}pt ${p.h}pt; margin: 0 } .p${i} { page: p${i}; width: ${p.w}pt; height: ${p.h}pt }`).join(' ');
   const body = pages.map((p, i) => `<img class="pg p${i}" src="${p.url}">`).join('');
   const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}img.pg{display:block;break-after:page}img.pg:last-child{break-after:auto}${css}</style>${body}`;
   const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });

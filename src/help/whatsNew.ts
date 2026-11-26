@@ -3,9 +3,10 @@ export type Release = { version: string; title: string; items: string[] };
 
 export const RELEASES: Release[] = [
   {
-    version: '1.2.0',
-    title: 'Passwords, page layout and safer redaction',
+    version: '1.2.1',
+    title: 'Fixes the 1.2.0 start-up error, plus everything new in 1.2.0',
     items: [
+      'Fixes the error that stopped PweDeF from opening after the 1.2.0 update.',
       'Print with Ctrl+P or the printer button.',
       'Open and save password-protected PDFs.',
       'Crop pages, put several pages on one sheet, make booklets, add headers and footers.',
