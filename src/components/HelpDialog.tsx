@@ -10,6 +10,16 @@ type Pick = { kind: 'topic'; id: string } | { kind: 'terms' } | { kind: 'license
 /** Help center: how-tos for every tool, shortcuts, troubleshooting, the terms and the open-source licenses. */
 export function HelpDialog({ onClose, onTour, version, initial, fileName, pageCount }: { onClose: () => void; onTour: () => void; version: string; initial?: string; fileName?: string; pageCount?: number }) {
   const [upd, setUpd] = useState('');
+  const [notices, setNotices] = useState<string | null>(null);
+  const showNotices = async () => {
+    if (notices !== null) return setNotices(null);
+    setNotices('');
+    try {
+      setNotices(await (await fetch(new URL('./THIRD-PARTY-NOTICES.txt', document.baseURI))).text());
+    } catch {
+      setNotices('The license texts could not be loaded. They are in the THIRD-PARTY-NOTICES.txt file next to the app, and on the project page.');
+    }
+  };
   const [pick, setPick] = useState<Pick>(initial === 'report' ? { kind: 'report' } : initial ? { kind: 'topic', id: initial } : { kind: 'topic', id: 'start' });
   const groups = useMemo(() => {
     const out: { name: string; items: typeof HELP }[] = [];
@@ -97,6 +107,10 @@ export function HelpDialog({ onClose, onTour, version, initial, fileName, pageCo
             <>
               <h3>Open-source licenses</h3>
               <p>PweDeF is built with these open-source components. Thank you to their authors.</p>
+              <p>
+                <button onClick={showNotices}>{notices === null ? 'Show the full license texts' : 'Hide the full license texts'}</button>
+              </p>
+              {notices !== null && <pre className="notices">{notices || 'Loading…'}</pre>}
               <table className="license-table">
                 <tbody>
                   {LICENSES.map((l) => (
@@ -119,7 +133,7 @@ export function HelpDialog({ onClose, onTour, version, initial, fileName, pageCo
                 Version <b>{version || '-'}</b>. A PDF tool for editing, signing, converting and organizing.
               </p>
               <p>
-                Created by <b>{AUTHOR}</b>. Free and open source.
+                Created by <b>{AUTHOR}</b>. Free to use. All rights reserved.
                 <br />
                 <a href={PROJECT_URL} target="_blank" rel="noreferrer">
                   {PROJECT_URL}

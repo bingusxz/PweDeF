@@ -1,10 +1,10 @@
 {
   "name": "pwedef",
   "productName": "PweDeF",
-  "version": "1.2.3",
-  "description": "PweDeF — a fast, free, open-source PDF editor (view, annotate, edit, sign, forms, page tools, OCR, batch).",
+  "version": "1.2.4",
+  "description": "PweDeF — a fast, free PDF editor (view, annotate, edit, sign, forms, page tools, OCR, batch).",
   "author": "Dean",
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "main": "electron/main.cjs",
   "type": "module",
@@ -14,7 +14,7 @@
   },
   "scripts": {
     "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "build": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/convert.cjs && node scripts/copy-pdfjs-assets.cjs && tsc --noEmit && vite build",
+    "build": "node scripts/third-party-notices.cjs && node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/convert.cjs && node scripts/copy-pdfjs-assets.cjs && tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "start": "electron .",
     "dist": "npm run build && electron-builder --win --publish never",

@@ -1,6 +1,6 @@
 # PweDeF
 
-**An all-in-one PDF studio for Windows, created by Dean.** Edit, sign, fill, convert, organize, protect, redact, print and OCR PDFs in one app. It is free, needs no Adobe account, works offline, and updates itself from GitHub.
+**An all-in-one PDF studio for Windows, created by Dean.** Edit, sign, fill, convert, organize, protect, redact, print and OCR PDFs in one app. It is free to use, needs no Adobe account, works offline, and updates itself from GitHub.
 
 PweDeF is a clean-room application built on open-source engines: Mozilla **pdf.js** draws and reads pages, **pdf-lib** writes PDFs, **node-forge** does the cryptography, **Tesseract** does OCR. It contains no Adobe code and follows the public PDF standard (ISO 32000).
 
@@ -171,6 +171,10 @@ tests/engine.test.ts   headless engine tests (fixtures in tests/fixtures)
 6. Installed copies download it in the background and offer **Restart to update**.
 
 Pushes that only change `.md` files or `docs/` do not release. The workflow publishes with GitHub's built-in token, and because the repo is public installed apps download updates without any key.
+
+## License
+
+Copyright (c) 2026 Dean. All rights reserved. You may use the app free of charge. The source is published to show how it works, not to be copied, changed or redistributed without permission. See [`LICENSE`](LICENSE). The third-party packages the app is built on keep their own licenses, listed with their full texts in the app under Help, Open-source licenses, and generated into `THIRD-PARTY-NOTICES.txt` at build time.
 
 ## Roadmap and notes
 

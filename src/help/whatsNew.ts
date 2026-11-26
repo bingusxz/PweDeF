@@ -3,6 +3,14 @@ export type Release = { version: string; title: string; items: string[] };
 
 export const RELEASES: Release[] = [
   {
+    version: '1.2.4',
+    title: 'Updated terms and license information',
+    items: [
+      'The terms of use were updated to make clear that PweDeF is free to use but the code is not free to copy or resell. You will be asked to accept them once.',
+      'Help, Open-source licenses can now show the full license text of every component the app uses.',
+    ],
+  },
+  {
     version: '1.2.3',
     title: 'Report a problem',
     items: [

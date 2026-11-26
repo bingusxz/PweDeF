@@ -30,7 +30,7 @@ export function TermsGate({ onAccept }: { onAccept: () => void }) {
         <header>
           <h2>Welcome to <BrandName /></h2>
           <p>Please read and accept the terms of use. It takes a minute.</p>
-          <small className="terms-by">Created by {AUTHOR} · free and open source</small>
+          <small className="terms-by">Created by {AUTHOR} · free to use</small>
         </header>
         <div className="terms-scroll" tabIndex={0}>
           {TERMS.map((s) => (

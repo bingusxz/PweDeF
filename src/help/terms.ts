@@ -1,6 +1,6 @@
-// Terms of Use shown on first run and in Help. Plain-language draft for a personal open-source project.
+// Terms of Use shown on first run and in Help. Plain-language draft for a personal project.
 // Change TERMS_VERSION whenever the text changes, and everyone is asked to accept again.
-export const TERMS_VERSION = '2026-11b';
+export const TERMS_VERSION = '2026-11c';
 export const AUTHOR = 'Dean';
 export const PROJECT_URL = 'https://github.com/bingusxz/PweDeF';
 
@@ -13,7 +13,7 @@ export const TERMS: TermsSection[] = [
   {
     title: '1. What PweDeF is',
     body: [
-      `PweDeF is a free, open-source PDF tool created by ${AUTHOR} as a personal project. It lets you edit, sign, convert, combine and organize PDF files on your own computer.`,
+      `PweDeF is a free PDF tool created by ${AUTHOR} as a personal project. It lets you edit, sign, convert, combine and organize PDF files on your own computer.`,
       'By clicking "I accept" you agree to these terms. If you do not agree, click "Decline" and the app will close.',
     ],
   },
@@ -22,7 +22,7 @@ export const TERMS: TermsSection[] = [
     body: [
       'Use PweDeF for your own lawful work, and only on documents you are allowed to handle.',
       'Do not use it to create false, misleading or unlawful documents, or to alter a document in a way that deceives someone.',
-      'The source code is public. What you may do with the code itself (copy it, change it, share it) is set by the license published with the source on the project page, not by these terms.',
+      'The source code is published so people can see how the app works, but it still belongs to its author. You may not copy, change, share or sell the code or the app without the author\'s written permission. See the LICENSE file on the project page.',
     ],
   },
   {
@@ -63,7 +63,7 @@ export const TERMS: TermsSection[] = [
   },
   {
     title: '8. Other software inside PweDeF',
-    body: ['PweDeF includes open-source components used under their own licenses. They are listed under Help, "Open-source licenses".'],
+    body: ['PweDeF includes open-source components used under their own licenses. They are listed, with their full license texts, under Help, "Open-source licenses".'],
   },
   {
     title: '9. Questions and problems',
