@@ -541,7 +541,7 @@ export function NumberFields({ o, set }: { o: NumberOpts; set: (o: NumberOpts) =
       <div>
         <input value={o.format} onChange={(e) => set({ ...o, format: e.target.value })} />
         <div className="hint">
-          {'{n}'} page · {'{total}'} count · {'{n:6}'} zero-padded (Bates, e.g. <code>MF-{'{n:6}'}</code>)
+          {'{n}'} page · {'{total}'} count · {'{n:6}'} zero-padded (Bates, e.g. <code>DOC-{'{n:6}'}</code>)
         </div>
       </div>
       <label>Position</label>

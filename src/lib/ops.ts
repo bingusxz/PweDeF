@@ -299,7 +299,7 @@ function sendLastStreamToBack(page: ReturnType<PDFDocument['getPage']>) {
 }
 
 export interface NumberOpts {
-  format: string; // e.g. "Page {n} of {total}" or "MF-{n:6}" (Bates)
+  format: string; // e.g. "Page {n} of {total}" or "DOC-{n:6}" (Bates)
   position: 'bottom-center' | 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'top-center';
   size: number;
   start: number;

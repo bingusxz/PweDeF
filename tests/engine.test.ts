@@ -60,12 +60,12 @@ const annots: Annot[] = [
   { id: 'e', page: 2, type: 'ellipse', x: 300, y: 300, w: 80, h: 40, color: '#000000', width: 1, fill: '#fff3b0' },
   { id: 'n', page: 1, type: 'note', x: 500, y: 50, text: 'Please review', color: '#f5b800' },
 ];
-const baked = await bake(base, annots, { customer: 'Mandaue Foam', agree: true }, await viewportGetter(base));
+const baked = await bake(base, annots, { customer: 'Acme', agree: true }, await viewportGetter(base));
 const t = await text(baked);
 check(t[0].includes('EDITED invoice total 2500'), 'edit-text replacement written to page 1');
 check(t[1].includes('Added note "smart quotes" - ok'), 'added text written (unicode quotes sanitized)');
 const bd = await PDFDocument.load(baked);
-check(bd.getForm().getTextField('customer').getText() === 'Mandaue Foam', 'form text field filled');
+check(bd.getForm().getTextField('customer').getText() === 'Acme', 'form text field filled');
 check(bd.getForm().getCheckBox('agree').isChecked(), 'form checkbox checked');
 const annotsP2 = bd.getPage(1).node.Annots();
 check(annotsP2 && annotsP2.size() === 1, 'sticky note saved as real PDF annotation');
@@ -121,10 +121,10 @@ check((await ops.pageCount(await ops.insertBlank(base, 1))) === 4, 'insert blank
 check((await ops.pageCount(await ops.insertPdf(base, base, 3))) === 6, 'insert PDF');
 const wm = await text(await ops.watermark(base, { text: 'CONFIDENTIAL', size: 60, color: '#ff0000', opacity: 0.2, diagonal: true }));
 check(wm.every((p) => p.includes('CONFIDENTIAL')), 'watermark on every page');
-const nums = await text(await ops.pageNumbers(base, { format: 'MF-{n:6}', position: 'bottom-right', size: 9, start: 1 }));
-check(nums[2].includes('MF-000003'), 'Bates numbering');
-const meta = await ops.getMetadata(await ops.setMetadata(base, { title: 'Invoice', author: 'MF' }));
-check(meta.title === 'Invoice' && meta.author === 'MF', 'metadata');
+const nums = await text(await ops.pageNumbers(base, { format: 'DOC-{n:6}', position: 'bottom-right', size: 9, start: 1 }));
+check(nums[2].includes('DOC-000003'), 'Bates numbering');
+const meta = await ops.getMetadata(await ops.setMetadata(base, { title: 'Invoice', author: 'Dean' }));
+check(meta.title === 'Invoice' && meta.author === 'Dean', 'metadata');
 check(JSON.stringify(ops.parseRanges('1-3, 5, 7-end', 8)) === JSON.stringify([[0, 1, 2], [4], [6, 7]]), 'range parsing');
 
 // ---- rotated page: edit text still lands upright on the rotated page ----
@@ -144,7 +144,7 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
   const t = await PDFDocument.create();
   const f = await t.embedFont(StandardFonts.Helvetica);
   const p = t.addPage([612, 792]);
-  const rows = [['SKU', 'Item', 'Qty', 'Price'], ['MF-001', 'Sofa bed', '3', '12,500.00'], ['MF-002', 'Foam mattress', '7', '4,999.50']];
+  const rows = [['SKU', 'Item', 'Qty', 'Price'], ['DOC-001', 'Sofa bed', '3', '12,500.00'], ['DOC-002', 'Foam mattress', '7', '4,999.50']];
   rows.forEach((r, i) => r.forEach((cell, j) => p.drawText(cell, { x: 72 + j * 120, y: 700 - i * 20, size: 11, font: f })));
   p.drawText('Thank you for shopping.', { x: 72, y: 600, size: 11, font: f });
   const pdfBytes = await t.save();
@@ -154,7 +154,7 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(xlsx as any);
   const ws = wb.worksheets[0];
-  check(ws.getRow(1).getCell(2).value === 'Item' && ws.getRow(2).getCell(1).value === 'MF-001', 'PDF->Excel keeps rows/columns');
+  check(ws.getRow(1).getCell(2).value === 'Item' && ws.getRow(2).getCell(1).value === 'DOC-001', 'PDF->Excel keeps rows/columns');
   check(ws.getRow(2).getCell(4).value === 12500 && ws.getRow(3).getCell(4).value === 4999.5, 'PDF->Excel converts numbers');
   const docx = await pdfToDocx(doc as any, pdfjs as any, 'flow', () => {});
   const JSZip = (await import('jszip')).default;
@@ -259,8 +259,8 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
   const { decodePDFRawStream } = await import('pdf-lib');
   const firstOps = new TextDecoder().decode(decodePDFRawStream(firstStream).decode());
   check(/Tj/.test(firstOps) && firstOps.includes('BT'), 'watermark: "behind" paints before the page content');
-  const tiled = await text(await ops.watermark(base, { text: 'MF', size: 30, color: '#000000', opacity: 0.1, diagonal: false, angle: 45, position: 'tile' }));
-  check((tiled[0].match(/MF/g) || []).length >= 6, 'watermark: tile repeats across the page');
+  const tiled = await text(await ops.watermark(base, { text: 'DOC', size: 30, color: '#000000', opacity: 0.1, diagonal: false, angle: 45, position: 'tile' }));
+  check((tiled[0].match(/DOC/g) || []).length >= 6, 'watermark: tile repeats across the page');
   const png1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
   const withImg = await ops.watermark(base, { kind: 'image', image: png1, imageScale: 30, text: '', size: 10, color: '#000', opacity: 0.3, diagonal: false, angle: 0 });
   const imgDoc = await pdfjs.getDocument({ data: withImg.slice(), isEvalSupported: false }).promise;
@@ -621,7 +621,7 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
 {
   // ---- digital signatures ----
   const S = await import('../src/lib/digitalSign');
-  const pfx = S.createSelfSigned({ name: 'Test Signer', org: 'Mandaue Foam', password: 'pw123' });
+  const pfx = S.createSelfSigned({ name: 'Test Signer', org: 'Acme', password: 'pw123' });
   let badPw = '';
   try {
     S.loadPfx(pfx, 'wrong');
@@ -771,12 +771,12 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
   const ctx = { file: 'contract.pdf', title: 'Contract', date: '26 November 2026', time: '09:30' };
   const hf = await L.headersFooters(base, {
     header: { left: '{file}', center: '', right: '{date}' },
-    footer: { left: '', center: 'Page {n} of {total}', right: 'MF-{n:4}' },
+    footer: { left: '', center: 'Page {n} of {total}', right: 'DOC-{n:4}' },
     size: 9, color: '#333333', margin: 24, start: 1, skipFirst: true, context: ctx,
   });
   const ht = await text(hf);
   check(!ht[0].includes('contract.pdf') && ht[1].includes('contract.pdf') && ht[1].includes('26 November 2026'), 'layout: header text appears, and is skipped on page 1 when asked');
-  check(ht[1].includes('Page 2 of 3') && ht[2].includes('MF-0003'), 'layout: footer tokens {n} {total} {n:4} fill in');
+  check(ht[1].includes('Page 2 of 3') && ht[2].includes('DOC-0003'), 'layout: footer tokens {n} {total} {n:4} fill in');
   const hfOdd = await L.headersFooters(base, { header: { left: 'ODD', center: '', right: '' }, footer: { left: '', center: '', right: '' }, size: 9, color: '#000000', margin: 24, start: 1, pages: 'odd', context: ctx });
   const ho = await text(hfOdd);
   check(ho[0].includes('ODD') && !ho[1].includes('ODD') && ho[2].includes('ODD'), 'layout: "odd" pages only');

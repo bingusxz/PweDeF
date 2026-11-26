@@ -9,7 +9,7 @@ web
 
 ## Users
 
-Mandaue Foam office staff (admin, sales, accounting, HR) working all day on office Windows PCs. They handle invoices, purchase orders, delivery receipts, contracts and HR forms: editing, signing, filling, merging, converting and redacting PDFs, often many times an hour.
+Office staff (admin, sales, accounting, HR) working all day on office Windows PCs. They handle invoices, purchase orders, delivery receipts, contracts and HR forms: editing, signing, filling, merging, converting and redacting PDFs, often many times an hour.
 
 ## Product Purpose
 
@@ -35,7 +35,7 @@ Acrobat Pro's editing and signing depth combined with iLovePDF's breadth of one-
 
 ## Brand Commitments
 
-- Name: **PweDeF**. It's a standalone brand, not Mandaue Foam branded, and must not resemble Adobe Acrobat.
+- Name: **PweDeF**. It's a standalone brand, not company branded, and must not resemble Adobe Acrobat.
 - The owner wants it to feel unique. The feature set is what's fixed; the current visual design is explicitly not.
 
 ## Evidence on Hand
