@@ -90,8 +90,11 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
   },
 ];
 
+/** Every tool, for lists that show tools by name (the home screen's own most-used list). */
+export const ALL_TOOLS: Tool[] = SECTIONS.flatMap((s) => s.tools);
+
 /** The jobs people come for most. */
-const POPULAR: HubAction[] = ['toWord', 'wordToPdf', 'editText', 'sign', 'merge', 'split', 'compress', 'formDesigner'];
+const POPULAR: HubAction[] = ['editText', 'sign', 'toWord', 'wordToPdf', 'merge', 'split', 'compress', 'formDesigner'];
 
 type TabId = 'popular' | 'toPdf' | 'fromPdf' | 'mergeSplit' | 'all';
 const TABS: { id: TabId; label: string }[] = [

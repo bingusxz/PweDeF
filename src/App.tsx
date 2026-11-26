@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DocTab } from './types';
+import { ALL_TOOLS } from './components/ToolHub';
 import { PasswordPrompt, ConvertPdfDialog, type ConvertKind, type ExcelPdfOpts } from './components/MoreDialogs';
 import { decryptPdf, isEncrypted, WrongPasswordError, type Protection } from './lib/pdfCrypt';
 import type { OpenedFile } from './global';
@@ -590,6 +591,30 @@ function Home({
   onClearRecent: () => void;
   onReport: () => void;
 }) {
+  const USE_KEY = 'acro.toolUse.v1';
+  const [uses, setUses] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(USE_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  });
+  // every tool started from the home screen is counted, so the left side can list the ones this person really uses
+  const go = (a: HubAction) => {
+    if (a !== 'open') {
+      const next = { ...uses, [a]: (uses[a] || 0) + 1 };
+      setUses(next);
+      try {
+        localStorage.setItem(USE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+    }
+    onAction(a);
+  };
+  const DEFAULTS: HubAction[] = ['editText', 'sign', 'merge', 'toWord', 'wordToPdf'];
+  const top = [...Object.keys(uses)].filter((a) => ALL_TOOLS.some((t) => t.a === a)).sort((x, y) => uses[y] - uses[x]).slice(0, 5) as HubAction[];
+  for (const d of DEFAULTS) if (top.length < 5 && !top.includes(d)) top.push(d);
   const when = (t: number) => new Date(t).toLocaleString(undefined, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   const folder = (p: string) => p.replace(/[\\/][^\\/]*$/, '');
   const size = (n?: number) => (n === undefined ? '' : n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
@@ -602,12 +627,15 @@ function Home({
             <Icon name="open" size={18} /> Open PDF
           </button>
           <p className="rail-drop">or drop files anywhere on this window</p>
-          <button className="rail-btn" onClick={() => onAction('merge')}>
-            <Icon name="merge" size={16} /> Merge PDFs
-          </button>
-          <button className="rail-btn" onClick={() => onAction('imgToPdf')}>
-            <Icon name="jpg" size={16} /> Images to PDF
-          </button>
+          <h2 className="rail-title">{Object.keys(uses).length ? 'Your most used' : 'Quick tools'}</h2>
+          {top.map((a) => {
+            const t = ALL_TOOLS.find((x) => x.a === a)!;
+            return (
+              <button key={a} className="rail-btn" onClick={() => go(a)} title={t.desc}>
+                <Icon name={t.icon} size={16} /> {t.title}
+              </button>
+            );
+          })}
           <div className="rail-foot">
             <button className="link-btn" onClick={() => window.acro.openDefaultApps()}>Make PweDeF my default PDF app</button>
             <button
@@ -627,7 +655,7 @@ function Home({
         </aside>
 
         <div className="home-main">
-          <ToolHub onAction={onAction} caps={caps} />
+          <ToolHub onAction={go} caps={caps} />
 
           <section className="recent" aria-label="Recent files">
             <div className="recent-head">
