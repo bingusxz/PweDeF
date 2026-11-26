@@ -3852,3 +3852,36 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--serial); ou
 .toolbar .page-input { padding: 0 4px; text-align: center; background: rgba(64, 30, 65, 0.06); border: 1px solid transparent; border-radius: 4px; }
 .menu-head, .menu-head:first-child { border-top: 0; }
 .home-v2 .rail-title { margin: 14px 0 2px; padding: 0 10px; font: 600 12px 'Barlow Condensed', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+
+/* dialog forms: one row height, labels centred on their field, nothing squeezed */
+.modal .form-grid { align-items: center; gap: 12px 16px; }
+.modal .form-grid > label { padding: 0; line-height: 1.2; }
+.modal .form-grid input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']), .modal .form-grid select, .modal .form-grid button { min-height: 36px; box-sizing: border-box; }
+.modal .form-grid input.num, .modal .form-grid input[type='number'] { width: 84px; flex: none; }
+.modal .form-grid input[type='range'] { flex: 1; min-width: 0; width: auto; }
+.modal .form-grid .row { align-items: center; min-width: 0; }
+.modal .form-grid button.small { padding: 0 12px; font-size: 13px; }
+.modal .form-grid .typed { min-width: 40px; text-align: right; }
+.modal .form-grid .swatch, .modal .swatch { width: 26px !important; height: 26px !important; min-height: 0 !important; min-width: 0 !important; padding: 0 !important; border-radius: 50% !important; flex: none; }
+.modal .form-grid input.num, .modal .form-grid input[type='number'] { width: 84px !important; flex: none !important; }
+.modal .form-grid input[type='range'] { width: auto !important; flex: 1 1 auto !important; min-width: 0 !important; min-height: 0 !important; padding: 0 !important; background: none; border: 0; }
+.modal .form-grid input[type='color'] { min-height: 0 !important; height: 28px; }
+
+/* home rail: everything centred */
+.home-v2 .home-rail { align-items: stretch; text-align: center; }
+.home-v2 .rail-brand { text-align: center; display: flex; justify-content: center; }
+.home-v2 .rail-title { text-align: center; padding: 0; }
+.home-v2 .rail-btn { justify-content: center; }
+.home-v2 .rail-foot { justify-items: center; text-align: center; }
+.home-v2 .rail-foot .link-btn { text-align: center; }
+.home-v2 .recent-size, .home-v2 .recent-table th:nth-child(3) { text-align: right; padding-right: 18px; }
+.home-v2 .recent-table th:nth-child(2) { text-align: left; }
+/* signature layout options */
+.layout-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.layout-pick button { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px; background: rgba(255, 255, 255, 0.6); }
+.layout-pick button.on { background: var(--serial-wash); box-shadow: 0 0 0 2px var(--serial) inset; }
+.layout-img { height: 74px; display: flex; align-items: center; justify-content: center; background: #fff; border-radius: 3px; overflow: hidden; }
+.layout-img img { max-width: 92%; max-height: 92%; object-fit: contain; }
+.layout-name { font-size: 12px; text-align: center; color: var(--ink-2); }
+.layout-pick button.on .layout-name { color: var(--serial); font-weight: 600; }
+.home-v2 .rail-btn { justify-content: flex-start; padding-left: 38px; }

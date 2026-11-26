@@ -33,7 +33,15 @@ export function typedSignature(text: string, font: string, color: string) {
   c.height = 300;
   const ctx = c.getContext('2d')!;
   ctx.fillStyle = color;
-  ctx.font = `120px "${font}", cursive`;
+  // long names shrink to fit the picture instead of running off the edge
+  let px = 120;
+  ctx.font = `${px}px "${font}", cursive`;
+  const room = c.width - 80;
+  const w = ctx.measureText(text).width;
+  if (w > room) {
+    px = Math.max(30, Math.floor((px * room) / w));
+    ctx.font = `${px}px "${font}", cursive`;
+  }
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 30, 150);
   return trimCanvas(c).toDataURL('image/png');

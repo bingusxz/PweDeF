@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DocTab } from './types';
 import { ALL_TOOLS } from './components/ToolHub';
-import { PasswordPrompt, ConvertPdfDialog, type ConvertKind, type ExcelPdfOpts } from './components/MoreDialogs';
+import { PasswordPrompt, ConvertPdfDialog, SaveChangesDialog, type ConvertKind, type ExcelPdfOpts, type SaveChoice } from './components/MoreDialogs';
 import { decryptPdf, isEncrypted, WrongPasswordError, type Protection } from './lib/pdfCrypt';
 import type { OpenedFile } from './global';
 import { Editor } from './components/Editor';
@@ -58,6 +58,22 @@ export default function App() {
   const [updHidden, setUpdHidden] = useState(false);
   const [version, setVersion] = useState('');
   const [news, setNews] = useState<Release | null>(null);
+  // files remembered before sizes were kept get their size filled in
+  useEffect(() => {
+    const missing = recent.filter((r) => r.size === undefined).map((r) => r.path);
+    if (!missing.length) return;
+    window.acro.fileSizes(missing).then((sizes) => {
+      if (!Object.keys(sizes).length) return;
+      const next = loadRecent().map((r) => (r.size === undefined && sizes[r.path] !== undefined ? { ...r, size: sizes[r.path] } : r));
+      try {
+        localStorage.setItem(RKEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      setRecent(next);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (version && termsOk) setNews(whatsNewFor(version));
   }, [version, termsOk]);
@@ -76,6 +92,8 @@ export default function App() {
     setRecent(next);
   };
 
+  const [saveAsk, setSaveAsk] = useState<{ title: string; text: string; saveLabel: string; discardLabel: string; resolve: (c: SaveChoice) => void } | null>(null);
+  const askSave = (title: string, text: string, saveLabel: string, discardLabel: string) => new Promise<SaveChoice>((resolve) => setSaveAsk({ title, text, saveLabel, discardLabel, resolve }));
   const [pwAsk, setPwAsk] = useState<{ name: string; wrong: boolean; resolve: (pw: string | null) => void } | null>(null);
   const askPassword = (name: string, wrong: boolean) => new Promise<string | null>((resolve) => setPwAsk({ name, wrong, resolve }));
   /** Protected files are opened here, before a tab exists, so the editor only ever sees a plain PDF. */
@@ -221,8 +239,9 @@ export default function App() {
     const t = tabsRef.current.find((x) => x.id === id);
     if (!t) return;
     if (t.dirty && (t.annots.length || Object.keys(t.form).length || t.past.length || t.protectDirty)) {
-      const choice = window.confirm(`"${t.name}" has unsaved changes.\n\nOK = save first, Cancel = discard changes`);
-      if (choice) {
+      const choice = await askSave('Save changes?', `"${t.name}" has changes that are not saved yet.`, 'Save', "Don't save");
+      if (choice === 'cancel') return;
+      if (choice === 'save') {
         const ok = await saveFns.current.get(id)?.(false);
         if (!ok) return;
       }
@@ -240,9 +259,24 @@ export default function App() {
   useEffect(() => {
     const offs = [
       window.acro.onOpenFiles(openFiles),
-      window.acro.onBeforeClose(() => {
+      window.acro.onBeforeClose(async () => {
         const dirty = tabsRef.current.filter((t) => t.dirty && (t.annots.length || Object.keys(t.form).length || t.past.length || t.protectDirty));
-        if (!dirty.length || window.confirm(`You have unsaved changes in ${dirty.length} document(s). Quit anyway?`)) window.acro.confirmClose();
+        if (!dirty.length) return window.acro.confirmClose();
+        const names = dirty.map((t) => t.name);
+        const choice = await askSave(
+          'Save changes before closing?',
+          dirty.length === 1 ? `"${names[0]}" has changes that are not saved yet.` : `${dirty.length} documents have changes that are not saved yet: ${names.slice(0, 3).join(', ')}${names.length > 3 ? ' and more' : ''}.`,
+          dirty.length === 1 ? 'Save and close' : 'Save all and close',
+          'Close without saving',
+        );
+        if (choice === 'cancel') return;
+        if (choice === 'save') {
+          for (const t of dirty) {
+            const ok = await saveFns.current.get(t.id)?.(false);
+            if (!ok) return;
+          }
+        }
+        window.acro.confirmClose();
       }),
       window.acro.onUpdateAvailable((v) => setUpdate({ version: v, ready: false })),
       window.acro.onUpdateReady((v) => {
@@ -441,6 +475,18 @@ export default function App() {
         </div>
       )}
       {compareOpen && <CompareDialog onClose={() => setCompareOpen(false)} />}
+      {saveAsk && (
+        <SaveChangesDialog
+          title={saveAsk.title}
+          text={saveAsk.text}
+          saveLabel={saveAsk.saveLabel}
+          discardLabel={saveAsk.discardLabel}
+          onChoice={(c) => {
+            saveAsk.resolve(c);
+            setSaveAsk(null);
+          }}
+        />
+      )}
       {pwAsk && <PasswordPrompt name={pwAsk.name} wrong={pwAsk.wrong} onSubmit={(pw) => pwAsk.resolve(pw)} onCancel={() => pwAsk.resolve(null)} />}
       {helpOpen && (
         <HelpDialog
@@ -617,7 +663,7 @@ function Home({
   for (const d of DEFAULTS) if (top.length < 5 && !top.includes(d)) top.push(d);
   const when = (t: number) => new Date(t).toLocaleString(undefined, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   const folder = (p: string) => p.replace(/[\\/][^\\/]*$/, '');
-  const size = (n?: number) => (n === undefined ? '' : n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+  const size = (n?: number) => (n === undefined ? '-' : n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
   return (
     <div className="home">
       <div className="home-sheet home-v2">

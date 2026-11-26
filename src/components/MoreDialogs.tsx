@@ -30,6 +30,30 @@ export function PasswordPrompt({ name, wrong, onSubmit, onCancel }: { name: stri
   );
 }
 
+export type SaveChoice = 'save' | 'discard' | 'cancel';
+
+/** Asked when closing something with unsaved changes. Three plain choices, instead of a Windows box where Cancel meant discard. */
+export function SaveChangesDialog({ title, text, saveLabel, discardLabel, onChoice }: { title: string; text: string; saveLabel: string; discardLabel: string; onChoice: (c: SaveChoice) => void }) {
+  return (
+    <Modal
+      title={title}
+      width={460}
+      onClose={() => onChoice('cancel')}
+      footer={
+        <>
+          <button onClick={() => onChoice('cancel')}>Cancel</button>
+          <button onClick={() => onChoice('discard')}>{discardLabel}</button>
+          <button className="primary" autoFocus onClick={() => onChoice('save')}>
+            {saveLabel}
+          </button>
+        </>
+      }
+    >
+      <p>{text}</p>
+    </Modal>
+  );
+}
+
 export type ExcelPdfOpts = { orientation: 'auto' | 'portrait' | 'landscape'; fitWidth: boolean };
 export type ConvertKind = 'excel' | 'word' | 'images' | 'text';
 

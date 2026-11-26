@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('acro', {
   saveFile: (defaultName, data, filters) => ipcRenderer.invoke('dialog:saveFile', { defaultName, data, filters }),
   chooseFolder: () => ipcRenderer.invoke('dialog:chooseFolder'),
   writeFile: (filePath, data) => ipcRenderer.invoke('fs:writeFile', { filePath, data }),
+  fileSizes: (paths) => ipcRenderer.invoke('fs:sizes', paths),
   sendReport: (r) => ipcRenderer.invoke('report:send', r),
   printPages: (pages) => ipcRenderer.invoke('print:pages', pages),
   writeInFolder: (folder, name, data) => ipcRenderer.invoke('fs:writeInFolder', { folder, name, data }),

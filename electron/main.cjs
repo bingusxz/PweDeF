@@ -197,6 +197,20 @@ ipcMain.handle('report:send', async (_e, { subject, text }) => {
   }
 });
 
+// Sizes of files in the recent list (for ones remembered before sizes were kept). Missing files are skipped.
+ipcMain.handle('fs:sizes', async (_e, paths) => {
+  const out = {};
+  for (const p of Array.isArray(paths) ? paths.slice(0, 50) : []) {
+    if (typeof p !== 'string' || !/\.pdf$/i.test(p)) continue;
+    try {
+      out[p] = (await fs.stat(p)).size;
+    } catch {
+      /* moved or deleted */
+    }
+  }
+  return out;
+});
+
 // Printing: the pages arrive as pictures, are laid out one per sheet at their own size, and go to the system print box.
 ipcMain.handle('print:pages', async (_e, pages) => {
   const css = pages.map((p, i) => `@page p${i} { size: ${p.w}pt ${p.h}pt; margin: 0 } .p${i} { page: p${i}; width: ${p.w}pt; height: ${p.h}pt }`).join(' ');

@@ -23,6 +23,14 @@ import { whiteToTransparent } from '../lib/pagePictures';
 import type { PendingImage } from './EditorContext';
 import { IMAGE_FILTERS } from '../lib/convert';
 
+/** Font size for a typed-signature preview so the whole name fits its box (a box is about 290px wide). */
+const measure = document.createElement('canvas').getContext('2d')!;
+function previewSize(text: string, font: string) {
+  measure.font = `30px "${font}", cursive`;
+  const w = measure.measureText(text).width;
+  return Math.max(13, Math.min(30, Math.floor((30 * 262) / Math.max(w, 1))));
+}
+
 type TabKey = 'saved' | 'draw' | 'type' | 'upload' | 'stamp';
 
 const INKS = [
@@ -36,8 +44,17 @@ const TILT = [-2.5, 1.5, -1, 2.2, -1.8, 1, -2.2, 1.8];
 
 type StampShow = { name: boolean; date: boolean; time: boolean };
 
-/** Puts a thin signature line and a caption (name, date) under a signature picture, as one picture. */
-async function withCaption(dataUrl: string, caption: string): Promise<string> {
+export type CapLayout = 'none' | 'under' | 'line' | 'over';
+const LAYOUTS: { id: CapLayout; label: string }[] = [
+  { id: 'none', label: 'Signature only' },
+  { id: 'under', label: 'Name under' },
+  { id: 'line', label: 'Line and name' },
+  { id: 'over', label: 'Signed over the name' },
+];
+
+/** Puts a caption (name, date) with a signature picture, as one picture, in the chosen layout. */
+async function withCaption(dataUrl: string, caption: string, layout: CapLayout): Promise<string> {
+  if (layout === 'none' || !caption) return dataUrl;
   const img = new Image();
   img.src = dataUrl;
   await img.decode();
@@ -45,24 +62,44 @@ async function withCaption(dataUrl: string, caption: string): Promise<string> {
   const h = img.naturalHeight;
   let font = Math.max(16, Math.round(w * 0.075));
   const m = document.createElement('canvas').getContext('2d')!;
-  const face = (px: number) => `${px}px "Courier Prime", "Segoe UI", Arial, sans-serif`;
+  const face = (px: number) => `500 ${px}px "Segoe UI", Arial, sans-serif`;
   m.font = face(font);
   while (font > 12 && m.measureText(caption).width > w * 1.3) m.font = face(--font);
   const textW = m.measureText(caption).width;
   const cw = Math.ceil(Math.max(w, textW) + 8);
-  const gap = Math.round(font * 0.35);
-  const ch = h + gap + 2 + Math.round(font * 1.5);
+  const sigX = Math.round((cw - w) / 2);
+  const ink = '#1c2340';
   const c = document.createElement('canvas');
   c.width = cw;
+  let ch: number;
+  if (layout === 'over') {
+    // the name is printed first and the signature is written across the top of it
+    const overlap = Math.min(font * 0.7, h * 0.4);
+    ch = Math.round(h - overlap + font * 1.25);
+    c.height = ch;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = ink;
+    ctx.globalAlpha = 0.8;
+    ctx.font = face(font);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(caption, cw / 2, h - overlap);
+    ctx.globalAlpha = 1;
+    ctx.drawImage(img, sigX, 0);
+    return c.toDataURL('image/png');
+  }
+  const gap = layout === 'line' ? Math.round(font * 0.45) : Math.round(font * 0.1);
+  const rule = layout === 'line' ? Math.max(1, Math.round(font * 0.07)) : 0;
+  ch = h + gap + rule + Math.round(font * 1.4);
   c.height = ch;
   const ctx = c.getContext('2d')!;
-  ctx.drawImage(img, Math.round((cw - w) / 2), 0);
-  ctx.fillStyle = '#1c2340';
-  ctx.fillRect(4, h + gap, cw - 8, Math.max(1, Math.round(font * 0.07)));
+  ctx.drawImage(img, sigX, 0);
+  ctx.fillStyle = ink;
+  if (layout === 'line') ctx.fillRect(4, h + gap, cw - 8, rule);
   ctx.font = face(font);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.fillText(caption, cw / 2, h + gap + Math.round(font * 0.3));
+  ctx.fillText(caption, cw / 2, h + gap + rule + (layout === 'line' ? Math.round(font * 0.25) : 0));
   return c.toDataURL('image/png');
 }
 
@@ -225,13 +262,17 @@ export function SignatureDialog({
   const [userName, setUserName] = useState(() => localStorage.getItem('acro.user') || '');
   const [capName, setCapName] = useState(true);
   const [capDate, setCapDate] = useState(false);
+  const [capLayout, setCapLayout] = useState<CapLayout>(() => (localStorage.getItem('acro.sigLayout') as CapLayout) || 'under');
+  const [drawTick, setDrawTick] = useState(0);
+  const [upSrc, setUpSrc] = useState<string | null>(null);
+  const [previews, setPreviews] = useState<Partial<Record<CapLayout, string>>>({});
   const canvas = useRef<HTMLCanvasElement>(null);
   const drawn = useRef(false);
 
   const finish = async (dataUrl: string, label: string, store: boolean) => {
     // a name and/or date under the signature, joined into the same picture so it is placed and saved as one
     const caption = [capName && userName.trim() ? userName.trim() : '', capDate ? new Date().toLocaleDateString() : ''].filter(Boolean).join('  ·  ');
-    if (kind === 'signature' && caption) dataUrl = await withCaption(dataUrl, caption);
+    if (kind === 'signature' && caption) dataUrl = await withCaption(dataUrl, caption, capLayout);
     if (store && remember) {
       const next = [{ id: uid(), dataUrl, kind }, ...sigs];
       saveSigs(next);
@@ -274,7 +315,10 @@ export function SignatureDialog({
       last = p;
       drawn.current = true;
     };
-    const up = () => (drawing = false);
+    const up = () => {
+      drawing = false;
+      setDrawTick((t) => t + 1);
+    };
     c.addEventListener('pointerdown', down);
     c.addEventListener('pointermove', move);
     c.addEventListener('pointerup', up);
@@ -285,6 +329,27 @@ export function SignatureDialog({
     };
   }, [tab, color]);
 
+  const caption = [capName && userName.trim() ? userName.trim() : '', capDate ? new Date().toLocaleDateString() : ''].filter(Boolean).join('  ·  ');
+  // the layout options are shown as small previews built from the signature being made right now
+  useEffect(() => {
+    if (kind !== 'signature' || !(tab === 'draw' || tab === 'type' || tab === 'upload')) return;
+    let dead = false;
+    (async () => {
+      let src: string;
+      if (tab === 'draw' && drawn.current && canvas.current) src = trimCanvas(canvas.current).toDataURL('image/png');
+      else if (tab === 'upload' && upSrc) src = upSrc;
+      else if (tab === 'type' && typed.trim()) src = typedSignature(typed.trim(), font, color);
+      else src = typedSignature('Signature', font, color);
+      const text = caption || 'Your name';
+      const out: Partial<Record<CapLayout, string>> = {};
+      for (const l of LAYOUTS) out[l.id] = await withCaption(src, l.id === 'none' ? '' : text, l.id);
+      if (!dead) setPreviews(out);
+    })().catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, [tab, kind, typed, font, color, caption, drawTick, upSrc]);
+
   const upload = async () => {
     const [f] = await window.acro.openPdfs({ multi: false, title: 'Choose image', filters: IMAGE_FILTERS });
     if (!f) return;
@@ -294,8 +359,8 @@ export function SignatureDialog({
     c.width = bmp.width;
     c.height = bmp.height;
     c.getContext('2d')!.drawImage(bmp, 0, 0);
-    // an uploaded e-signature is usually ink on white paper: make the paper see-through before saving it
-    await finish(await whiteToTransparent(c.toDataURL('image/png')), kind, true);
+    // an uploaded e-signature is usually ink on white paper: make the paper see-through, then let the layouts preview it
+    setUpSrc(await whiteToTransparent(c.toDataURL('image/png')));
   };
 
   const tabs: [TabKey, string][] = [
@@ -340,25 +405,48 @@ export function SignatureDialog({
       )}
 
       {kind === 'signature' && (tab === 'draw' || tab === 'type' || tab === 'upload') && (
-        <div className="stamp-opts">
-          <span className="ctx-cap">Print under the signature</span>
-          <label className="check">
-            <input type="checkbox" checked={capName} onChange={(e) => setCapName(e.target.checked)} /> Name
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={capDate} onChange={(e) => setCapDate(e.target.checked)} /> Date
-          </label>
-          {capName && (
-            <input
-              placeholder="Name to print"
-              value={userName}
-              onChange={(e) => {
-                setUserName(e.target.value);
-                localStorage.setItem('acro.user', e.target.value);
-              }}
-            />
-          )}
-        </div>
+        <>
+          <div className="stamp-opts">
+            <span className="ctx-cap">Add</span>
+            <label className="check">
+              <input type="checkbox" checked={capName} onChange={(e) => setCapName(e.target.checked)} /> Name
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={capDate} onChange={(e) => setCapDate(e.target.checked)} /> Date
+            </label>
+            {capName && (
+              <input
+                placeholder="Name to print"
+                value={userName}
+                onChange={(e) => {
+                  setUserName(e.target.value);
+                  localStorage.setItem('acro.user', e.target.value);
+                }}
+              />
+            )}
+          </div>
+          <div className="layout-pick" role="radiogroup" aria-label="Signature layout">
+            {LAYOUTS.map((l) => (
+              <button
+                key={l.id}
+                role="radio"
+                aria-checked={capLayout === l.id}
+                className={capLayout === l.id ? 'on' : ''}
+                onClick={() => {
+                  setCapLayout(l.id);
+                  try {
+                    localStorage.setItem('acro.sigLayout', l.id);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              >
+                <span className="layout-img">{previews[l.id] ? <img src={previews[l.id]} alt="" /> : null}</span>
+                <span className="layout-name">{l.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       {tab === 'saved' &&
@@ -415,7 +503,7 @@ export function SignatureDialog({
           <input className="big-input" placeholder={kind === 'initials' ? 'Your initials' : 'Your full name'} value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
           <div className="font-pick">
             {SIGNATURE_FONTS.map((f) => (
-              <button key={f} className={font === f ? 'on' : ''} style={{ fontFamily: `"${f}", cursive`, color }} onClick={() => setFont(f)}>
+              <button key={f} className={font === f ? 'on' : ''} style={{ fontFamily: `"${f}", cursive`, color, fontSize: previewSize(typed || 'Signature', f) }} onClick={() => setFont(f)}>
                 {typed || 'Signature'}
               </button>
             ))}
@@ -430,10 +518,17 @@ export function SignatureDialog({
 
       {tab === 'upload' && (
         <div className="center-box">
-          <p className="muted">Use a scanned signature, a company seal, or any picture. PNGs with transparency look best.</p>
-          <button className="primary" onClick={upload}>
-            <Icon name="image" /> Choose image…
-          </button>
+          <p className="muted">{upSrc ? 'Pick how it should look above, then press Use signature.' : 'Use a scanned or photographed e-signature, a company seal, or any picture. The white background is removed. PNGs with transparency look best.'}</p>
+          <div className="row end gap">
+            <button className={upSrc ? '' : 'primary'} onClick={upload}>
+              <Icon name="image" /> {upSrc ? 'Choose a different image' : 'Choose image'}
+            </button>
+            {upSrc && (
+              <button className="primary" onClick={() => finish(upSrc, kind, true)}>
+                Use signature
+              </button>
+            )}
+          </div>
         </div>
       )}
 
