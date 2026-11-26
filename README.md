@@ -1,6 +1,6 @@
 # PweDeF
 
-**An all-in-one PDF studio for Windows, created by Dean at Mandaue Foam.** Edit, sign, fill, convert, organize, protect, redact, print and OCR PDFs in one app. It is free, needs no Adobe account, works offline, and updates itself from GitHub.
+**An all-in-one PDF studio for Windows, created by Dean.** Edit, sign, fill, convert, organize, protect, redact, print and OCR PDFs in one app. It is free, needs no Adobe account, works offline, and updates itself from GitHub.
 
 PweDeF is a clean-room application built on open-source engines: Mozilla **pdf.js** draws and reads pages, **pdf-lib** writes PDFs, **node-forge** does the cryptography, **Tesseract** does OCR. It contains no Adobe code and follows the public PDF standard (ISO 32000).
 
@@ -179,4 +179,4 @@ Pushes that only change `.md` files or `docs/` do not release. The workflow publ
 - [`docs/AI-ASSISTANT-PLAN.md`](docs/AI-ASSISTANT-PLAN.md): the planned assistant.
 - [`docs/HANDOFF.md`](docs/HANDOFF.md): notes for whoever maintains this next.
 
-Created by Dean. Built for Mandaue Foam.
+Created by Dean.
