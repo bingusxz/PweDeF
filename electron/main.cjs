@@ -201,7 +201,7 @@ const OFFICE_FILTERS = {
   ppt: { name: 'PowerPoint presentations', extensions: ['ppt', 'pptx', 'pps', 'ppsx', 'odp'] },
 };
 ipcMain.handle('convert:caps', () => conv.capabilities());
-ipcMain.handle('convert:officeToPdf', async (_e, kind) => {
+ipcMain.handle('convert:officeToPdf', async (_e, kind, opts) => {
   const filters = kind && OFFICE_FILTERS[kind] ? [OFFICE_FILTERS[kind]] : Object.values(OFFICE_FILTERS);
   const res = await dialog.showOpenDialog(win, { title: 'Choose files to convert to PDF', properties: ['openFile', 'multiSelections'], filters });
   if (res.canceled) return [];
@@ -209,7 +209,7 @@ ipcMain.handle('convert:officeToPdf', async (_e, kind) => {
   for (const p of res.filePaths) {
     const name = path.basename(p).replace(/\.[^.]+$/, '') + '.pdf';
     try {
-      out.push({ name, data: await conv.officeToPdf(p) });
+      out.push({ name, data: await conv.officeToPdf(p, opts || {}) });
     } catch (e) {
       out.push({ name, error: e.message });
     }

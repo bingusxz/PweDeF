@@ -91,6 +91,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [tool, setTool] = useState<Tool>('select');
+  const [book, setBook] = useState(false);
   const [style, setStyle] = useState<StyleState>({
     color: '#111111',
     width: 2,
@@ -247,17 +248,17 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
     fitWidth();
   }, [sizes]);
 
-  const fitWidth = () => {
+  const fitWidth = (twoUp = book) => {
     const el = viewerRef.current;
     if (!el || !sizes.length) return;
     const maxW = Math.max(...sizes.map((s) => s.w));
-    setZoom(Math.min(3, Math.max(0.25, (el.clientWidth - 64) / maxW)));
+    setZoom(Math.min(3, Math.max(0.25, (el.clientWidth - 64) / (maxW * (twoUp ? 2 : 1)))));
   };
-  const fitPage = () => {
+  const fitPage = (twoUp = book) => {
     const el = viewerRef.current;
     if (!el || !sizes.length) return;
     const s = sizes[current] || sizes[0];
-    setZoom(Math.max(0.25, Math.min((el.clientWidth - 64) / s.w, (el.clientHeight - 40) / s.h)));
+    setZoom(Math.max(0.25, Math.min((el.clientWidth - 64) / (s.w * (twoUp ? 2 : 1)), (el.clientHeight - 40) / s.h)));
   };
 
   // ---------- state mutation helpers ----------
@@ -1249,7 +1250,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
             <button className="icon-btn" title="Zoom in (Ctrl +)" onClick={() => zoomTo(zoom * 1.2)}>
               <Icon name="zoomIn" />
             </button>
-            <button className="icon-btn" title="Fit width" onClick={fitWidth}>
+            <button className="icon-btn" title="Fit width" onClick={() => fitWidth()}>
               <Icon name="fit" />
             </button>
           </div>
@@ -1424,9 +1425,23 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
           )}
 
           {/* ---------- pages ---------- */}
-          <div className={`viewer tool-${tool}`} ref={viewerRef} onScroll={onScroll}>
+          <div className={`viewer tool-${tool}${book ? ' book' : ''}`} ref={viewerRef} onScroll={onScroll}>
             {pdf ? (
-              sizes.map((s, i) => <PageView key={`${loadId}-${i}`} pdf={pdf} index={i} size={s} rev={loadId} registerEl={registerEl} />)
+              book ? (
+                // two pages side by side: 1-2, 3-4 and so on
+                Array.from({ length: Math.ceil(sizes.length / 2) }, (_, k) => {
+                  const idx = [2 * k, 2 * k + 1].filter((i) => i < sizes.length);
+                  return (
+                    <div className="spread" key={`${loadId}-s${k}`}>
+                      {idx.map((i) => (
+                        <PageView key={`${loadId}-${i}`} pdf={pdf} index={i} size={sizes[i]} rev={loadId} registerEl={registerEl} />
+                      ))}
+                    </div>
+                  );
+                })
+              ) : (
+                sizes.map((s, i) => <PageView key={`${loadId}-${i}`} pdf={pdf} index={i} size={s} rev={loadId} registerEl={registerEl} />)
+              )
             ) : (
               <div className="empty-state">Opening…</div>
             )}
@@ -1436,6 +1451,33 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
         <div className="statusbar">
           <span>{tab.path || 'Unsaved document'}</span>
           <span className="tb-spacer" />
+          <span className="view-switch" role="group" aria-label="View">
+            <button className={!book ? 'on' : ''} onClick={() => {
+              const keep = current;
+              setBook(false);
+              fitWidth(false);
+              requestAnimationFrame(() => requestAnimationFrame(() => {
+                const el = pageEls.current[keep];
+                if (el && viewerRef.current) viewerRef.current.scrollTop = el.offsetTop - 16;
+              }));
+            }} title="One page at a time, scrolling down">Single</button>
+            <button
+              className={book ? 'on' : ''}
+              disabled={!pdf || pdf.numPages < 2}
+              title="Two pages side by side. Zoom and editing work as usual."
+              onClick={() => {
+                const keep = current;
+                setBook(true);
+                fitWidth(true);
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                  const el = pageEls.current[keep];
+                  if (el && viewerRef.current) viewerRef.current.scrollTop = el.offsetTop - 16;
+                }));
+              }}
+            >
+              Double
+            </button>
+          </span>
           {pendingCount > 0 && <span className="pill">{pendingCount} unsaved edit{pendingCount === 1 ? '' : 's'}</span>}
           {redactCount > 0 && <span className="pill danger">{redactCount} redaction{redactCount === 1 ? '' : 's'} will be applied on save</span>}
           <span className="muted">{(tab.bytes.length / 1024).toFixed(0)} KB</span>

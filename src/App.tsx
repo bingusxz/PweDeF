@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DocTab } from './types';
-import { PasswordPrompt } from './components/MoreDialogs';
+import { PasswordPrompt, ExcelPdfDialog, type ExcelPdfOpts } from './components/MoreDialogs';
 import { decryptPdf, isEncrypted, WrongPasswordError, type Protection } from './lib/pdfCrypt';
 import type { OpenedFile } from './global';
 import { Editor } from './components/Editor';
@@ -156,6 +156,7 @@ export default function App() {
 
   const [caps, setCaps] = useState<{ office: boolean; libreoffice: boolean } | null>(null);
   const [urlDialog, setUrlDialog] = useState(false);
+  const [excelAsk, setExcelAsk] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
   useEffect(() => {
     window.acro.convertCaps().then(setCaps).catch(() => {});
@@ -184,10 +185,11 @@ export default function App() {
         return setBatch(true);
       case 'imgToPdf':
         return imagesToPdf();
-      case 'wordToPdf':
       case 'excelToPdf':
+        return setExcelAsk(true);
+      case 'wordToPdf':
       case 'pptToPdf': {
-        const kind = a === 'wordToPdf' ? 'word' : a === 'excelToPdf' ? 'excel' : 'ppt';
+        const kind = a === 'wordToPdf' ? 'word' : 'ppt';
         return withWorking('Converting with ' + (caps?.office ? 'Microsoft Office' : 'LibreOffice') + '…', async () => {
           const res = await window.acro.officeToPdf(kind);
           for (const r of res) {
@@ -468,6 +470,21 @@ export default function App() {
           onDone={(bytes, name) => {
             setMergeOpen(false);
             openNew(bytes, name);
+          }}
+        />
+      )}
+      {excelAsk && (
+        <ExcelPdfDialog
+          onCancel={() => setExcelAsk(false)}
+          onGo={(o: ExcelPdfOpts) => {
+            setExcelAsk(false);
+            void withWorking('Converting with ' + (caps?.office ? 'Microsoft Office' : 'LibreOffice') + '…', async () => {
+              const res = await window.acro.officeToPdf('excel', o);
+              for (const r of res) {
+                if (r.data) openNew(r.data, r.name);
+                else toast(`${r.name}: ${r.error}`, 'error');
+              }
+            });
           }}
         />
       )}

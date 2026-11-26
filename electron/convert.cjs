@@ -26,7 +26,26 @@ switch ($kind) {
   'excel' {
     $app = New-Object -ComObject Excel.Application
     $app.Visible = $false; $app.DisplayAlerts = $false
-    try { $wb = $app.Workbooks.Open($in, 0, $true); $wb.ExportAsFixedFormat(0, $out); $wb.Close($false) }
+    try {
+      $wb = $app.Workbooks.Open($in, 0, $true)
+      $orient = $env:ACRO_ORIENT; $fit = $env:ACRO_FIT
+      if ($orient -or $fit -eq '1') {
+        foreach ($ws in $wb.Worksheets) {
+          try {
+            $ps = $ws.PageSetup
+            if ($orient -eq 'landscape') { $ps.Orientation = 2 }
+            elseif ($orient -eq 'portrait') { $ps.Orientation = 1 }
+            elseif ($orient -eq 'auto') {
+              # wide sheets go landscape, tall narrow ones stay portrait
+              $w = $ws.UsedRange.Width; $h = $ws.UsedRange.Height
+              if ($w -gt 520 -and $w -ge $h * 0.6) { $ps.Orientation = 2 } else { $ps.Orientation = 1 }
+            }
+            if ($fit -eq '1') { $ps.Zoom = $false; $ps.FitToPagesWide = 1; $ps.FitToPagesTall = $false }
+          } catch { }
+        }
+      }
+      $wb.ExportAsFixedFormat(0, $out); $wb.Close($false)
+    }
     finally { $app.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($app) }
   }
   'ppt' {
@@ -46,11 +65,11 @@ function run(cmd, args, opts) {
   });
 }
 
-async function viaOffice(kind, input, output) {
+async function viaOffice(kind, input, output, opts = {}) {
   if (process.platform !== 'win32') throw new Error('Microsoft Office automation is Windows-only');
   const encoded = Buffer.from(OFFICE_SCRIPT, 'utf16le').toString('base64');
   await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
-    env: { ...process.env, ACRO_IN: input, ACRO_OUT: output, ACRO_KIND: kind },
+    env: { ...process.env, ACRO_IN: input, ACRO_OUT: output, ACRO_KIND: kind, ACRO_ORIENT: ['auto', 'portrait', 'landscape'].includes(opts.orientation) ? opts.orientation : '', ACRO_FIT: opts.fitWidth ? '1' : '' },
   });
   if (!fss.existsSync(output)) throw new Error('Office did not produce an output file');
 }
@@ -82,7 +101,7 @@ async function tempDir() {
 }
 
 /** Convert an Office/text document at `input` to PDF bytes. */
-async function officeToPdf(input) {
+async function officeToPdf(input, opts = {}) {
   const ext = path.extname(input).slice(1).toLowerCase();
   const kind = KIND_BY_EXT[ext];
   if (!kind) throw new Error(`Unsupported file type: .${ext}`);
@@ -91,7 +110,7 @@ async function officeToPdf(input) {
   const errors = [];
   try {
     try {
-      await viaOffice(kind, input, out);
+      await viaOffice(kind, input, out, opts);
     } catch (e) {
       errors.push('Microsoft Office: ' + e.message);
       try {

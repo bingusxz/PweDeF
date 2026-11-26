@@ -30,6 +30,37 @@ export function PasswordPrompt({ name, wrong, onSubmit, onCancel }: { name: stri
   );
 }
 
+export type ExcelPdfOpts = { orientation: 'auto' | 'portrait' | 'landscape'; fitWidth: boolean };
+
+/** Asked before an Excel file is turned into a PDF: which way the pages face, and whether wide sheets are shrunk to fit. */
+export function ExcelPdfDialog({ onGo, onCancel }: { onGo: (o: ExcelPdfOpts) => void; onCancel: () => void }) {
+  const [orientation, setOrientation] = useState<ExcelPdfOpts['orientation']>('auto');
+  const [fitWidth, setFitWidth] = useState(true);
+  return (
+    <Modal
+      title="Excel to PDF"
+      onClose={onCancel}
+      width={460}
+      footer={
+        <button className="primary" onClick={() => onGo({ orientation, fitWidth })}>
+          Choose files
+        </button>
+      }
+    >
+      <label>Page direction</label>
+      <select value={orientation} onChange={(e) => setOrientation(e.target.value as ExcelPdfOpts['orientation'])}>
+        <option value="auto">Automatic (wide sheets go landscape)</option>
+        <option value="portrait">Portrait (upright)</option>
+        <option value="landscape">Landscape (sideways)</option>
+      </select>
+      <label className="check">
+        <input type="checkbox" checked={fitWidth} onChange={(e) => setFitWidth(e.target.checked)} /> Fit all columns on the page width, so nothing is cut off
+      </label>
+      <p className="muted">Applies to every sheet. The original Excel file is not changed.</p>
+    </Modal>
+  );
+}
+
 const PERM_LABELS: { k: keyof Permissions; label: string }[] = [
   { k: 'print', label: 'Printing' },
   { k: 'edit', label: 'Changing the document' },

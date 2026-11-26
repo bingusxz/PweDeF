@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('acro', {
   loadFont: (q) => ipcRenderer.invoke('fonts:load', q),
   listFonts: () => ipcRenderer.invoke('fonts:list'),
   convertCaps: () => ipcRenderer.invoke('convert:caps'),
-  officeToPdf: (kind) => ipcRenderer.invoke('convert:officeToPdf', kind),
+  officeToPdf: (kind, opts) => ipcRenderer.invoke('convert:officeToPdf', kind, opts),
   webToPdf: (url, landscape) => ipcRenderer.invoke('convert:webToPdf', { url, landscape }),
   pickHtmlToPdf: () => ipcRenderer.invoke('convert:pickHtmlToPdf'),
   htmlToPdf: (html, name) => ipcRenderer.invoke('convert:htmlToPdf', { html, name }),

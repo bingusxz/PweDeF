@@ -31,7 +31,7 @@ declare global {
       loadFont(q: { family: string; bold: boolean; italic: boolean }): Promise<{ data: Uint8Array; exact: boolean; italic?: boolean } | null>;
       listFonts(): Promise<string[]>;
       convertCaps(): Promise<{ office: boolean; libreoffice: boolean }>;
-      officeToPdf(kind?: 'word' | 'excel' | 'ppt'): Promise<{ name: string; data?: Uint8Array; error?: string }[]>;
+      officeToPdf(kind?: 'word' | 'excel' | 'ppt', opts?: { orientation?: 'auto' | 'portrait' | 'landscape'; fitWidth?: boolean }): Promise<{ name: string; data?: Uint8Array; error?: string }[]>;
       webToPdf(url: string, landscape?: boolean): Promise<{ name: string; data: Uint8Array }>;
       pickHtmlToPdf(): Promise<{ name: string; data: Uint8Array } | null>;
       htmlToPdf(html: string, name: string): Promise<{ name: string; data: Uint8Array }>;
