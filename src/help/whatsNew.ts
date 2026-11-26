@@ -3,6 +3,14 @@ export type Release = { version: string; title: string; items: string[] };
 
 export const RELEASES: Release[] = [
   {
+    version: '1.2.6',
+    title: 'Recent files, tidied',
+    items: [
+      'Recent files: the whole row lights up when you point at it, and you can click anywhere on the row to open the file.',
+      'Everything from 1.2.5 is included: the calmer look, signature layouts and the Save changes dialog.',
+    ],
+  },
+  {
     version: '1.2.5',
     title: 'A calmer look, and better signatures',
     items: [
