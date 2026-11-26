@@ -222,7 +222,7 @@ ipcMain.handle('convert:pickHtmlToPdf', async () => {
   if (res.canceled) return null;
   return conv.webToPdf(res.filePaths[0]);
 });
-ipcMain.handle('convert:htmlToPdf', (_e, { html, name }) => conv.htmlToPdf(String(html), String(name)));
+ipcMain.handle('convert:htmlToPdf', (_e, { html, name, landscape }) => conv.htmlToPdf(String(html), String(name), { landscape: !!landscape }));
 
 // The UI calls this once its listeners are attached; returns files queued at startup.
 ipcMain.handle('app:ready', async () => {

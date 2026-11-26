@@ -34,7 +34,7 @@ declare global {
       officeToPdf(kind?: 'word' | 'excel' | 'ppt', opts?: { orientation?: 'auto' | 'portrait' | 'landscape'; fitWidth?: boolean }): Promise<{ name: string; data?: Uint8Array; error?: string }[]>;
       webToPdf(url: string, landscape?: boolean): Promise<{ name: string; data: Uint8Array }>;
       pickHtmlToPdf(): Promise<{ name: string; data: Uint8Array } | null>;
-      htmlToPdf(html: string, name: string): Promise<{ name: string; data: Uint8Array }>;
+      htmlToPdf(html: string, name: string, landscape?: boolean): Promise<{ name: string; data: Uint8Array }>;
       onOpenFiles(cb: (files: OpenedFile[]) => void): () => void;
       onBeforeClose(cb: () => void): () => void;
       onUpdateAvailable(cb: (version: string) => void): () => void;

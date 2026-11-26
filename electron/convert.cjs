@@ -20,7 +20,15 @@ switch ($kind) {
   'word' {
     $app = New-Object -ComObject Word.Application
     $app.Visible = $false; $app.DisplayAlerts = 0
-    try { $d = $app.Documents.Open($in, $false, $true, $false); $d.ExportAsFixedFormat($out, 17); $d.Close(0) }
+    try {
+      $d = $app.Documents.Open($in, $false, $true, $false)
+      $o = $env:ACRO_ORIENT
+      if ($o -eq 'portrait' -or $o -eq 'landscape') {
+        $v = if ($o -eq 'landscape') { 1 } else { 0 }
+        foreach ($s in $d.Sections) { try { $s.PageSetup.Orientation = $v } catch { } }
+      }
+      $d.ExportAsFixedFormat($out, 17); $d.Close(0)
+    }
     finally { $app.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($app) }
   }
   'excel' {
@@ -159,12 +167,12 @@ async function webToPdf(target, opts = {}) {
 }
 
 /** Render HTML string (used for text/markdown -> PDF). */
-async function htmlToPdf(html, name) {
+async function htmlToPdf(html, name, opts = {}) {
   const dir = await tempDir();
   const file = path.join(dir, 'doc.html');
   await fs.writeFile(file, html, 'utf8');
   try {
-    const res = await webToPdf(file);
+    const res = await webToPdf(file, { landscape: !!opts.landscape });
     return { name, data: res.data };
   } finally {
     fs.rm(dir, { recursive: true, force: true }).catch(() => {});

@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('acro', {
   officeToPdf: (kind, opts) => ipcRenderer.invoke('convert:officeToPdf', kind, opts),
   webToPdf: (url, landscape) => ipcRenderer.invoke('convert:webToPdf', { url, landscape }),
   pickHtmlToPdf: () => ipcRenderer.invoke('convert:pickHtmlToPdf'),
-  htmlToPdf: (html, name) => ipcRenderer.invoke('convert:htmlToPdf', { html, name }),
+  htmlToPdf: (html, name, landscape) => ipcRenderer.invoke('convert:htmlToPdf', { html, name, landscape }),
   onOpenFiles: (cb) => on('files:open', cb),
   onBeforeClose: (cb) => on('app:before-close', cb),
   onUpdateAvailable: (cb) => on('update:available', cb),

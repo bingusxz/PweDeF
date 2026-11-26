@@ -374,12 +374,12 @@ export async function compress(bytes: Uint8Array) {
   return save(doc);
 }
 
-export async function imagesToPdf(images: { bytes: Uint8Array; mime: string }[]) {
+export async function imagesToPdf(images: { bytes: Uint8Array; mime: string }[], orientation: 'auto' | 'portrait' | 'landscape' = 'auto') {
   const doc = await PDFDocument.create();
   for (const im of images) {
     const img = im.mime.includes('png') ? await doc.embedPng(im.bytes) : await doc.embedJpg(im.bytes);
     // Fit to A4 portrait/landscape keeping aspect.
-    const landscape = img.width > img.height;
+    const landscape = orientation === 'auto' ? img.width > img.height : orientation === 'landscape';
     const [pw, ph] = landscape ? [PageSizes.A4[1], PageSizes.A4[0]] : PageSizes.A4;
     const s = Math.min((pw - 36) / img.width, (ph - 36) / img.height, 1);
     const w = img.width * s;

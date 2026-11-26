@@ -58,10 +58,10 @@ async function normalizeImage(bytes: Uint8Array, name: string): Promise<{ bytes:
   return { bytes: await blobToBytes(blob), mime: 'image/png' };
 }
 
-export async function imagesFilesToPdf(files: { name: string; data: Uint8Array }[]) {
+export async function imagesFilesToPdf(files: { name: string; data: Uint8Array }[], orientation: 'auto' | 'portrait' | 'landscape' = 'auto') {
   const imgs = [];
   for (const f of files) imgs.push(await normalizeImage(f.data, f.name));
-  return imagesToPdf(imgs);
+  return imagesToPdf(imgs, orientation);
 }
 
 export const IMAGE_FILTERS = [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] }];

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DocTab } from './types';
-import { PasswordPrompt, ExcelPdfDialog, type ExcelPdfOpts } from './components/MoreDialogs';
+import { PasswordPrompt, ConvertPdfDialog, type ConvertKind, type ExcelPdfOpts } from './components/MoreDialogs';
 import { decryptPdf, isEncrypted, WrongPasswordError, type Protection } from './lib/pdfCrypt';
 import type { OpenedFile } from './global';
 import { Editor } from './components/Editor';
@@ -144,11 +144,11 @@ export default function App() {
   // opens the Merge window: add files, order them, pick pages, turn them, then combine
   const combineFiles = async () => setMergeOpen(true);
 
-  const imagesToPdf = async () => {
+  const imagesToPdf = async (o: ExcelPdfOpts) => {
     const files = await window.acro.openPdfs({ title: 'Choose images', filters: IMAGE_FILTERS });
     if (!files.length) return;
     try {
-      openNew(await imagesFilesToPdf(files), 'Images.pdf');
+      openNew(await imagesFilesToPdf(files, o.orientation), 'Images.pdf');
     } catch (e) {
       toast(errText(e), 'error');
     }
@@ -156,7 +156,7 @@ export default function App() {
 
   const [caps, setCaps] = useState<{ office: boolean; libreoffice: boolean } | null>(null);
   const [urlDialog, setUrlDialog] = useState(false);
-  const [excelAsk, setExcelAsk] = useState(false);
+  const [convertAsk, setConvertAsk] = useState<ConvertKind | null>(null);
   const [working, setWorking] = useState<string | null>(null);
   useEffect(() => {
     window.acro.convertCaps().then(setCaps).catch(() => {});
@@ -184,12 +184,13 @@ export default function App() {
       case 'batch':
         return setBatch(true);
       case 'imgToPdf':
-        return imagesToPdf();
+        return setConvertAsk('images');
       case 'excelToPdf':
-        return setExcelAsk(true);
+        return setConvertAsk('excel');
       case 'wordToPdf':
+        return setConvertAsk('word');
       case 'pptToPdf': {
-        const kind = a === 'wordToPdf' ? 'word' : 'ppt';
+        const kind = 'ppt';
         return withWorking('Converting with ' + (caps?.office ? 'Microsoft Office' : 'LibreOffice') + '…', async () => {
           const res = await window.acro.officeToPdf(kind);
           for (const r of res) {
@@ -200,26 +201,8 @@ export default function App() {
       }
       case 'webToPdf':
         return setUrlDialog(true);
-      case 'htmlToPdf': {
-        const [f] = await window.acro.openPdfs({
-          multi: false,
-          title: 'Choose an HTML, text or Markdown file',
-          filters: [{ name: 'HTML / Text', extensions: ['html', 'htm', 'txt', 'md', 'markdown', 'log', 'csv'] }],
-        });
-        if (!f) return;
-        return withWorking('Converting…', async () => {
-          const name = f.name.replace(/\.[^.]+$/, '') + '.pdf';
-          if (/\.html?$/i.test(f.name)) {
-            const html = new TextDecoder().decode(f.data);
-            const r = await window.acro.htmlToPdf(html, name);
-            openNew(r.data, name);
-          } else {
-            const { textToPdf } = await import('./lib/exporters');
-            const r = await textToPdf(new TextDecoder().decode(f.data), name);
-            openNew(r.data, name);
-          }
-        });
-      }
+      case 'htmlToPdf':
+        return setConvertAsk('text');
       default: {
         // tools that run on a PDF: pick one, open it, then launch the tool
         const files = await window.acro.openPdfs({ multi: false, title: 'Choose a PDF' });
@@ -473,13 +456,39 @@ export default function App() {
           }}
         />
       )}
-      {excelAsk && (
-        <ExcelPdfDialog
-          onCancel={() => setExcelAsk(false)}
+      {convertAsk && (
+        <ConvertPdfDialog
+          kind={convertAsk}
+          onCancel={() => setConvertAsk(null)}
           onGo={(o: ExcelPdfOpts) => {
-            setExcelAsk(false);
+            const kind = convertAsk;
+            setConvertAsk(null);
+            if (kind === 'images') return void imagesToPdf(o);
+            if (kind === 'text') {
+              void (async () => {
+                const [f] = await window.acro.openPdfs({
+                  multi: false,
+                  title: 'Choose an HTML, text or Markdown file',
+                  filters: [{ name: 'HTML / Text', extensions: ['html', 'htm', 'txt', 'md', 'markdown', 'log', 'csv'] }],
+                });
+                if (!f) return;
+                void withWorking('Converting…', async () => {
+                  const name = f.name.replace(/\.[^.]+$/, '') + '.pdf';
+                  const landscape = o.orientation === 'landscape';
+                  if (/\.html?$/i.test(f.name)) {
+                    const r = await window.acro.htmlToPdf(new TextDecoder().decode(f.data), name, landscape);
+                    openNew(r.data, name);
+                  } else {
+                    const { textToPdf } = await import('./lib/exporters');
+                    const r = await textToPdf(new TextDecoder().decode(f.data), name, landscape);
+                    openNew(r.data, name);
+                  }
+                });
+              })();
+              return;
+            }
             void withWorking('Converting with ' + (caps?.office ? 'Microsoft Office' : 'LibreOffice') + '…', async () => {
-              const res = await window.acro.officeToPdf('excel', o);
+              const res = await window.acro.officeToPdf(kind, o);
               for (const r of res) {
                 if (r.data) openNew(r.data, r.name);
                 else toast(`${r.name}: ${r.error}`, 'error');

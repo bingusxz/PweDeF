@@ -31,32 +31,43 @@ export function PasswordPrompt({ name, wrong, onSubmit, onCancel }: { name: stri
 }
 
 export type ExcelPdfOpts = { orientation: 'auto' | 'portrait' | 'landscape'; fitWidth: boolean };
+export type ConvertKind = 'excel' | 'word' | 'images' | 'text';
 
-/** Asked before an Excel file is turned into a PDF: which way the pages face, and whether wide sheets are shrunk to fit. */
-export function ExcelPdfDialog({ onGo, onCancel }: { onGo: (o: ExcelPdfOpts) => void; onCancel: () => void }) {
+const CONVERT_COPY: Record<ConvertKind, { title: string; auto: string; go: string }> = {
+  excel: { title: 'Excel to PDF', auto: 'Automatic (wide sheets go landscape)', go: 'Choose files' },
+  word: { title: 'Word to PDF', auto: 'As set in each document', go: 'Choose files' },
+  images: { title: 'Images to PDF', auto: 'Match each picture', go: 'Choose images' },
+  text: { title: 'HTML or text to PDF', auto: 'Portrait (upright)', go: 'Choose a file' },
+};
+
+/** Asked before something is turned into a PDF: which way the pages face (and for Excel, whether wide sheets shrink to fit). */
+export function ConvertPdfDialog({ kind, onGo, onCancel }: { kind: ConvertKind; onGo: (o: ExcelPdfOpts) => void; onCancel: () => void }) {
+  const copy = CONVERT_COPY[kind];
   const [orientation, setOrientation] = useState<ExcelPdfOpts['orientation']>('auto');
   const [fitWidth, setFitWidth] = useState(true);
   return (
     <Modal
-      title="Excel to PDF"
+      title={copy.title}
       onClose={onCancel}
       width={460}
       footer={
         <button className="primary" onClick={() => onGo({ orientation, fitWidth })}>
-          Choose files
+          {copy.go}
         </button>
       }
     >
       <label>Page direction</label>
       <select value={orientation} onChange={(e) => setOrientation(e.target.value as ExcelPdfOpts['orientation'])}>
-        <option value="auto">Automatic (wide sheets go landscape)</option>
+        <option value="auto">{copy.auto}</option>
         <option value="portrait">Portrait (upright)</option>
         <option value="landscape">Landscape (sideways)</option>
       </select>
-      <label className="check">
-        <input type="checkbox" checked={fitWidth} onChange={(e) => setFitWidth(e.target.checked)} /> Fit all columns on the page width, so nothing is cut off
-      </label>
-      <p className="muted">Applies to every sheet. The original Excel file is not changed.</p>
+      {kind === 'excel' && (
+        <label className="check">
+          <input type="checkbox" checked={fitWidth} onChange={(e) => setFitWidth(e.target.checked)} /> Fit all columns on the page width, so nothing is cut off
+        </label>
+      )}
+      <p className="muted">Applies to every page. The original file is not changed.</p>
     </Modal>
   );
 }

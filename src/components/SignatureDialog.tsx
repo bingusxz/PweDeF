@@ -36,6 +36,36 @@ const TILT = [-2.5, 1.5, -1, 2.2, -1.8, 1, -2.2, 1.8];
 
 type StampShow = { name: boolean; date: boolean; time: boolean };
 
+/** Puts a thin signature line and a caption (name, date) under a signature picture, as one picture. */
+async function withCaption(dataUrl: string, caption: string): Promise<string> {
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  let font = Math.max(16, Math.round(w * 0.075));
+  const m = document.createElement('canvas').getContext('2d')!;
+  const face = (px: number) => `${px}px "Courier Prime", "Segoe UI", Arial, sans-serif`;
+  m.font = face(font);
+  while (font > 12 && m.measureText(caption).width > w * 1.3) m.font = face(--font);
+  const textW = m.measureText(caption).width;
+  const cw = Math.ceil(Math.max(w, textW) + 8);
+  const gap = Math.round(font * 0.35);
+  const ch = h + gap + 2 + Math.round(font * 1.5);
+  const c = document.createElement('canvas');
+  c.width = cw;
+  c.height = ch;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(img, Math.round((cw - w) / 2), 0);
+  ctx.fillStyle = '#1c2340';
+  ctx.fillRect(4, h + gap, cw - 8, Math.max(1, Math.round(font * 0.07)));
+  ctx.font = face(font);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(caption, cw / 2, h + gap + Math.round(font * 0.3));
+  return c.toDataURL('image/png');
+}
+
 /** The stamp pad: every stamp shown as the real impression it will leave on the page. */
 function StampPad({
   onPick,
@@ -193,10 +223,15 @@ export function SignatureDialog({
   const [remember, setRemember] = useState(true);
   const [show, setShow] = useState<StampShow>({ name: true, date: true, time: true });
   const [userName, setUserName] = useState(() => localStorage.getItem('acro.user') || '');
+  const [capName, setCapName] = useState(true);
+  const [capDate, setCapDate] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const drawn = useRef(false);
 
   const finish = async (dataUrl: string, label: string, store: boolean) => {
+    // a name and/or date under the signature, joined into the same picture so it is placed and saved as one
+    const caption = [capName && userName.trim() ? userName.trim() : '', capDate ? new Date().toLocaleDateString() : ''].filter(Boolean).join('  ·  ');
+    if (kind === 'signature' && caption) dataUrl = await withCaption(dataUrl, caption);
     if (store && remember) {
       const next = [{ id: uid(), dataUrl, kind }, ...sigs];
       saveSigs(next);
@@ -301,6 +336,28 @@ export function SignatureDialog({
           <label className="check">
             <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Save for next time
           </label>
+        </div>
+      )}
+
+      {kind === 'signature' && (tab === 'draw' || tab === 'type' || tab === 'upload') && (
+        <div className="stamp-opts">
+          <span className="ctx-cap">Print under the signature</span>
+          <label className="check">
+            <input type="checkbox" checked={capName} onChange={(e) => setCapName(e.target.checked)} /> Name
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={capDate} onChange={(e) => setCapDate(e.target.checked)} /> Date
+          </label>
+          {capName && (
+            <input
+              placeholder="Name to print"
+              value={userName}
+              onChange={(e) => {
+                setUserName(e.target.value);
+                localStorage.setItem('acro.user', e.target.value);
+              }}
+            />
+          )}
         </div>
       )}
 

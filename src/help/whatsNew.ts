@@ -7,7 +7,8 @@ export const RELEASES: Release[] = [
     title: 'Double page view and better Excel to PDF',
     items: [
       'Double view: switch from Single to Double at the bottom right to see two pages side by side. Zoom and editing work as usual.',
-      'Excel to PDF now asks for portrait, landscape or automatic.',
+      'Signatures can print your name and date under them. It is placed and saved as one item.',
+      'Word, Excel, images and HTML or text to PDF now ask for portrait or landscape.',
       'A new option fits all columns on the page width, so wide sheets are no longer cut off.',
       'This card is now a taped paper slip.',
     ],
