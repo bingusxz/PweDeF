@@ -724,7 +724,7 @@ function Home({
                 </thead>
                 <tbody>
                   {recent.map((r) => (
-                    <tr key={r.path}>
+                    <tr key={r.path} className="recent-row" onClick={() => onRecent(r)}>
                       <td>
                         <button className="recent-open" onClick={() => onRecent(r)} title={r.path}>
                           <span className="log-name">{r.name}</span>
@@ -734,7 +734,10 @@ function Home({
                       <td className="recent-when">{when(r.at)}</td>
                       <td className="recent-size">{size(r.size)}</td>
                       <td>
-                        <button className="icon-btn" title="Remove from this list" aria-label={`Remove ${r.name} from the list`} onClick={() => onRemoveRecent(r)}>
+                        <button className="icon-btn" title="Remove from this list" aria-label={`Remove ${r.name} from the list`} onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveRecent(r);
+                          }}>
                           <Icon name="close" size={14} />
                         </button>
                       </td>

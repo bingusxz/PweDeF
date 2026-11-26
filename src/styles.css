@@ -3885,3 +3885,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--serial); ou
 .layout-name { font-size: 12px; text-align: center; color: var(--ink-2); }
 .layout-pick button.on .layout-name { color: var(--serial); font-weight: 600; }
 .home-v2 .rail-btn { justify-content: flex-start; padding-left: 38px; }
+/* recent rows: one even highlight across the whole row */
+.home-v2 .recent-row { cursor: pointer; }
+.home-v2 .recent-open, .home-v2 .recent-open:hover:not(:disabled) { background: transparent !important; border-color: transparent; padding: 2px 0; }
+.home-v2 .recent-row .icon-btn:hover:not(:disabled) { background: rgba(64, 30, 65, 0.1); }
+.home-v2 .recent-table tbody tr:hover td { background: rgba(255, 207, 103, 0.22); }
