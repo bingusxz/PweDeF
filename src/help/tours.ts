@@ -6,11 +6,10 @@ export interface TourStep {
 }
 
 export const HOME_TOUR: TourStep[] = [
-  { title: 'Welcome to PweDeF', text: 'A short tour of the home screen: 5 quick stops. You can skip it any time with Esc, and take it again from Help.' },
-  { target: '.home-actions .primary', title: 'Open a PDF', text: 'Click here to choose a file, or just drag a PDF anywhere onto the window.' },
-  { target: '.start', title: 'Start here', text: 'The jobs people do most: edit a PDF, sign, merge files, and turn a PDF into Word.' },
-  { target: '.hub .form-set', title: 'All the tools', text: 'Everything else, grouped by what you are doing. Look for the NEW stamps: Compare, Form designer and Digital signature.' },
-  { target: '.filing-log', title: 'Your recent files', text: 'PDFs you open are listed here, so you can reopen them in one click.' },
+  { title: 'Welcome to PweDeF', text: 'A short tour of the home screen: 4 quick stops. You can skip it any time with Esc, and take it again from Help.' },
+  { target: '.home-rail .primary', title: 'Open a PDF', text: 'Click here to choose a file, or just drag a PDF anywhere onto the window.' },
+  { target: '.hub-tabs', title: 'The tools', text: 'Popular shows the jobs people do most. The other tabs group the rest by what you are doing, and All tools lists everything. Look for the NEW stamps.' },
+  { target: '.recent', title: 'Your recent files', text: 'PDFs you open are listed here with when and how big, so you can reopen them in one click. Use Clear list if you share this PC.' },
   { target: '.help-btn', title: 'Help is always here', text: 'Click the ? (or press F1) for step-by-step guides, shortcuts and the terms of use.' },
 ];
 

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Icon } from './Icon';
 
 export type HubAction =
@@ -83,8 +84,18 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
   },
 ];
 
-/** The jobs people come for most, big and first. */
-const QUICK: HubAction[] = ['editText', 'sign', 'merge', 'toWord'];
+/** The jobs people come for most. */
+const POPULAR: HubAction[] = ['toWord', 'wordToPdf', 'editText', 'sign', 'merge', 'split', 'compress', 'formDesigner'];
+
+type TabId = 'popular' | 'toPdf' | 'fromPdf' | 'mergeSplit' | 'all';
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'popular', label: 'Popular' },
+  { id: 'toPdf', label: 'Convert to PDF' },
+  { id: 'fromPdf', label: 'Convert from PDF' },
+  { id: 'mergeSplit', label: 'Merge and split' },
+  { id: 'all', label: 'All tools' },
+];
+const MERGE_SPLIT: HubAction[] = ['merge', 'split', 'pages', 'crop', 'sheets', 'compare'];
 
 /** Left: working on a PDF. Right: converting into and out of PDF. */
 const COLUMNS = [
@@ -92,56 +103,87 @@ const COLUMNS = [
   ['Convert to PDF', 'Convert from PDF'],
 ];
 
+const TAB_KEY = 'acro.hubTab';
+const loadTab = (): TabId => {
+  try {
+    const t = localStorage.getItem(TAB_KEY) as TabId | null;
+    if (t && TABS.some((x) => x.id === t)) return t;
+  } catch {
+    /* ignore */
+  }
+  return 'popular';
+};
+
 export function ToolHub({ onAction, caps }: { onAction: (a: HubAction) => void; caps: { office: boolean; libreoffice: boolean } | null }) {
-  const sections = SECTIONS;
+  const [tab, setTab] = useState<TabId>(loadTab);
   const all = SECTIONS.flatMap((s) => s.tools);
-  const quick = QUICK.map((a) => all.find((t) => t.a === a)!).filter(Boolean);
+  const pick = (ids: HubAction[]) => ids.map((a) => all.find((t) => t.a === a)!).filter(Boolean);
+  const byTitle = (title: string) => SECTIONS.find((s) => s.title === title)?.tools ?? [];
   const officeMissing = caps && !caps.office && !caps.libreoffice;
+  const choose = (t: TabId) => {
+    setTab(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {
+      /* ignore */
+    }
+  };
+  const tiles: Tool[] = tab === 'popular' ? pick(POPULAR) : tab === 'toPdf' ? byTitle('Convert to PDF') : tab === 'fromPdf' ? byTitle('Convert from PDF') : tab === 'mergeSplit' ? pick(MERGE_SPLIT) : [];
 
   return (
     <div className="hub">
-      <section className="start" aria-label="Start here">
-        <h2 className="start-title">Start here</h2>
-        <div className="start-cards">
-          {quick.map((t, i) => (
-            <button key={t.a} className="start-card" style={{ ['--tilt' as any]: `${[-0.7, 0.5, -0.4, 0.8][i % 4]}deg` }} onClick={() => onAction(t.a)}>
-              <Icon name={t.icon} size={26} className="start-icon" />
-              <span className="start-name">{t.title}</span>
-              <span className="start-desc">{t.desc}</span>
+      <div className="hub-tabs" role="tablist" aria-label="Tools">
+        {TABS.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => choose(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab !== 'all' ? (
+        <div className="hub-panel tiles">
+          {tiles.map((t, i) => (
+            <button key={t.a} className="tile" style={{ ['--tilt' as string]: `${[-0.5, 0.4, -0.3, 0.6][i % 4]}deg` }} onClick={() => onAction(t.a)}>
+              <Icon name={t.icon} size={26} className="tile-icon" />
+              <span className="tile-text">
+                <span className="tile-name">
+                  {t.title}
+                  {t.isNew && <span className="new-stamp">New</span>}
+                </span>
+                <span className="tile-desc">{t.desc}</span>
+              </span>
             </button>
           ))}
         </div>
-      </section>
-
-      <div className="form-set">
+      ) : (
+        <div className="hub-panel form-set">
           {COLUMNS.map((col, ci) => (
             <div className="form-col" key={ci}>
-              {sections
-                .filter((s) => col.includes(s.title))
-                .map((s) => (
-                  <section key={s.title} className={`form-section stock-${s.stock}`}>
-                    <h2 className="form-section-title">{s.title}</h2>
-                    <ul className="form-lines">
-                      {s.tools.map((t) => (
-                        <li key={t.a}>
-                          <button className="form-line" onClick={() => onAction(t.a)}>
-                            <Icon name={t.icon} size={18} className="form-line-icon" />
-                            <span className="form-line-name">
-                              {t.title}
-                              {t.isNew && <span className="new-stamp">New</span>}
-                            </span>
-                            <span className="form-line-desc">{t.desc}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ))}
+              {SECTIONS.filter((s) => col.includes(s.title)).map((s) => (
+                <section key={s.title} className={`form-section stock-${s.stock}`}>
+                  <h2 className="form-section-title">{s.title}</h2>
+                  <ul className="form-lines">
+                    {s.tools.map((t) => (
+                      <li key={t.a}>
+                        <button className="form-line" onClick={() => onAction(t.a)}>
+                          <Icon name={t.icon} size={18} className="form-line-icon" />
+                          <span className="form-line-name">
+                            {t.title}
+                            {t.isNew && <span className="new-stamp">New</span>}
+                          </span>
+                          <span className="form-line-desc">{t.desc}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
             </div>
           ))}
-      </div>
+        </div>
+      )}
 
-      {officeMissing && (
+      {officeMissing && (tab === 'toPdf' || tab === 'all') && (
         <p className="note-line">Word, Excel and PowerPoint to PDF need Microsoft Office or the free LibreOffice on this PC.</p>
       )}
     </div>

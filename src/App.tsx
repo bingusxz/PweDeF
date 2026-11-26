@@ -26,6 +26,7 @@ interface Recent {
   path: string;
   name: string;
   at: number;
+  size?: number;
 }
 const RKEY = 'acro.recent.v1';
 const loadRecent = (): Recent[] => {
@@ -48,6 +49,7 @@ export default function App() {
   const [compareOpen, setCompareOpen] = useState(false);
   const [termsOk, setTermsOk] = useState(termsAccepted);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [helpStart, setHelpStart] = useState<string | undefined>(undefined);
   const [tour, setTour] = useState<'home' | 'editor' | null>(null);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [recent, setRecent] = useState<Recent[]>(loadRecent);
@@ -63,8 +65,8 @@ export default function App() {
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
-  const remember = (f: { path: string; name: string }) => {
-    const next = [{ path: f.path, name: f.name, at: Date.now() }, ...loadRecent().filter((r) => r.path !== f.path)].slice(0, 12);
+  const remember = (f: { path: string; name: string; data?: Uint8Array }) => {
+    const next = [{ path: f.path, name: f.name, at: Date.now(), size: f.data?.length }, ...loadRecent().filter((r) => r.path !== f.path)].slice(0, 12);
     try {
       localStorage.setItem(RKEY, JSON.stringify(next));
     } catch {
@@ -384,6 +386,19 @@ export default function App() {
             version={version}
             caps={caps}
             onAction={hubAction}
+            onRemoveRecent={(r) => {
+              const next = recent.filter((x) => x.path !== r.path);
+              localStorage.setItem(RKEY, JSON.stringify(next));
+              setRecent(next);
+            }}
+            onClearRecent={() => {
+              localStorage.setItem(RKEY, '[]');
+              setRecent([]);
+            }}
+            onReport={() => {
+              setHelpStart('report');
+              setHelpOpen(true);
+            }}
             onRecent={async (r) => {
               try {
                 openFiles([await window.acro.readPdf(r.path)]);
@@ -429,8 +444,12 @@ export default function App() {
       {helpOpen && (
         <HelpDialog
           version={version}
+          initial={helpStart}
           fileName={activeTab?.name}
-          onClose={() => setHelpOpen(false)}
+          onClose={() => {
+            setHelpOpen(false);
+            setHelpStart(undefined);
+          }}
           onTour={() => {
             setHelpOpen(false);
             setTour(activeTab ? 'editor' : 'home');
@@ -558,71 +577,101 @@ function Home({
   caps,
   onAction,
   onRecent,
+  onRemoveRecent,
+  onClearRecent,
+  onReport,
 }: {
   recent: Recent[];
   version: string;
   caps: { office: boolean; libreoffice: boolean } | null;
   onAction: (a: HubAction) => void;
   onRecent: (r: Recent) => void;
+  onRemoveRecent: (r: Recent) => void;
+  onClearRecent: () => void;
+  onReport: () => void;
 }) {
-  const stamp = (t: number) =>
-    new Date(t).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const when = (t: number) => new Date(t).toLocaleString(undefined, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   const folder = (p: string) => p.replace(/[\\/][^\\/]*$/, '');
+  const size = (n?: number) => (n === undefined ? '' : n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
   return (
     <div className="home">
-      <div className="home-sheet">
-        <header className="home-head">
-          <div className="home-title">
-            <h1><BrandName /></h1>
-            <p>Edit, sign, convert and organize PDFs. Drop files anywhere on this window to start.</p>
-          </div>
-          <div className="home-actions">
-            <span className="serial" title="Installed version. It updates itself.">
-              Version <b>{version || '-'}</b>
-            </span>
-            <button className="primary big" onClick={() => onAction('open')}>
-              <Icon name="open" size={18} /> Open PDF
-            </button>
-          </div>
-        </header>
-
-        <div className="home-body">
-          <ToolHub onAction={onAction} caps={caps} />
-
-          <aside className="filing-log" aria-label="Recent files">
-            <h2>Filing log</h2>
-            {recent.length ? (
-              <ol>
-                {recent.map((r) => (
-                  <li key={r.path}>
-                    <button className="log-row" onClick={() => onRecent(r)} title={r.path}>
-                      <span className="log-name">{r.name}</span>
-                      <span className="log-folder">{folder(r.path)}</span>
-                      <span className="log-time">{stamp(r.at)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="empty-line">PDFs you open are logged here so you can reopen them in one click.</p>
-            )}
-            <p className="note-line">
-              Tip: make PweDeF your default PDF app.{' '}
-              <button className="link-btn" onClick={() => window.acro.openDefaultApps()}>
-                Show me how
-              </button>
-            </p>
+      <div className="home-sheet home-v2">
+        <aside className="home-rail">
+          <h1 className="rail-brand"><BrandName /></h1>
+          <button className="primary big" onClick={() => onAction('open')}>
+            <Icon name="open" size={18} /> Open PDF
+          </button>
+          <p className="rail-drop">or drop files anywhere on this window</p>
+          <button className="rail-btn" onClick={() => onAction('merge')}>
+            <Icon name="merge" size={16} /> Merge PDFs
+          </button>
+          <button className="rail-btn" onClick={() => onAction('imgToPdf')}>
+            <Icon name="jpg" size={16} /> Images to PDF
+          </button>
+          <div className="rail-foot">
+            <button className="link-btn" onClick={() => window.acro.openDefaultApps()}>Make PweDeF my default PDF app</button>
             <button
-              className="link-btn update-check"
+              className="link-btn"
               onClick={async () => {
                 const r = await window.acro.checkUpdates();
-                // an update that is downloading already shows in the header, so no second notice for it
                 if (r.status !== 'downloading') toast(r.message, r.status === 'error' ? 'error' : r.status === 'latest' ? 'ok' : 'info');
               }}
             >
               Check for updates
             </button>
-          </aside>
+            <button className="link-btn" onClick={onReport}>Report a problem</button>
+            <span className="serial" title="Installed version. It updates itself.">
+              Version <b>{version || '-'}</b>
+            </span>
+          </div>
+        </aside>
+
+        <div className="home-main">
+          <ToolHub onAction={onAction} caps={caps} />
+
+          <section className="recent" aria-label="Recent files">
+            <div className="recent-head">
+              <h2>Recent</h2>
+              {recent.length > 0 && (
+                <button className="link-btn" onClick={onClearRecent}>
+                  Clear list
+                </button>
+              )}
+            </div>
+            {recent.length ? (
+              <table className="recent-table">
+                <thead>
+                  <tr>
+                    <th>File name</th>
+                    <th>Last opened</th>
+                    <th>Size</th>
+                    <th aria-label="Remove" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((r) => (
+                    <tr key={r.path}>
+                      <td>
+                        <button className="recent-open" onClick={() => onRecent(r)} title={r.path}>
+                          <span className="log-name">{r.name}</span>
+                          <span className="log-folder">{folder(r.path)}</span>
+                        </button>
+                      </td>
+                      <td className="recent-when">{when(r.at)}</td>
+                      <td className="recent-size">{size(r.size)}</td>
+                      <td>
+                        <button className="icon-btn" title="Remove from this list" aria-label={`Remove ${r.name} from the list`} onClick={() => onRemoveRecent(r)}>
+                          <Icon name="close" size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="empty-line">PDFs you open are listed here so you can reopen them in one click.</p>
+            )}
+          </section>
         </div>
       </div>
     </div>
