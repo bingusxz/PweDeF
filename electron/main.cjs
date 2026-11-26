@@ -180,7 +180,7 @@ ipcMain.handle('fs:writeInFolder', async (_e, { folder, name, data }) => {
 
 // Problem reports go to a small web address owned by the developer (set in REPORT_URL), which forwards them by email.
 // The address of the inbox lives only on that side, so it is never in the app.
-const REPORT_URL = '';
+const REPORT_URL = 'https://script.google.com/macros/s/AKfycbyGH73U_-r3mLpCgQ6bCq3m05BILNTMP8iY9mS1jvrngxdymR3bzV3pAJJamlFylcFB6g/exec';
 ipcMain.handle('report:send', async (_e, { subject, text }) => {
   if (!REPORT_URL) return { ok: false, error: 'not-configured' };
   try {

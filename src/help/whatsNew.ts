@@ -3,6 +3,15 @@ export type Release = { version: string; title: string; items: string[] };
 
 export const RELEASES: Release[] = [
   {
+    version: '1.2.3',
+    title: 'Report a problem',
+    items: [
+      'New in Help: Report a problem. Tell the developer what went wrong or what you would like, and it is sent straight to them.',
+      'Your PDF is never attached. You see exactly what will be sent before you press Send.',
+      'Everything from 1.2.2 is included: double page view, portrait or landscape for conversions, and names under signatures.',
+    ],
+  },
+  {
     version: '1.2.2',
     title: 'Double page view and better Excel to PDF',
     items: [
