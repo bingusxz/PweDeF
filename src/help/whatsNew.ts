@@ -3,6 +3,17 @@ export type Release = { version: string; title: string; items: string[] };
 
 export const RELEASES: Release[] = [
   {
+    version: '1.2.5',
+    title: 'A calmer look, and better signatures',
+    items: [
+      'Cleaner screens: fewer lines and underlines, the same style of buttons everywhere, and filled fields in dialogs.',
+      'Signatures: choose how your name goes with it. Signature only, name under, a line and the name, or signed over the name. Previews show each one.',
+      'Typed signatures shrink so long names fit.',
+      "Closing a document with changes now asks Save, Don't save or Cancel.",
+      'Home: tools in tabs, your most used tools on the left, and recent files with their size.',
+    ],
+  },
+  {
     version: '1.2.4',
     title: 'Updated terms and license information',
     items: [
