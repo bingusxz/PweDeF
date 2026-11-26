@@ -2,7 +2,7 @@ import { previewFace } from '../lib/embeddedFace';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { loadPdf, pdfjs, type PDFDocumentProxy, type PDFPageProxy } from '../lib/pdf';
 import { useEditor } from './EditorContext';
-import type { Annot, Rect, TextAnnot } from '../types';
+import type { Annot, FieldAnnot, Rect, TextAnnot } from '../types';
 import { annotBounds, isBoxAnnot, normRect, uid } from '../lib/util';
 import { Icon } from './Icon';
 import { FieldPreview } from './FieldPreview';
@@ -165,6 +165,14 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       ed.addAnnot(a, true);
       return;
     }
+    if (tool === 'field') {
+      // a click on a field that is already there selects it instead of dropping a new one on top
+      const over = [...ed.annots].reverse().find((a) => a.type === 'field' && !a.gone && a.page === index && x0 >= a.x && x0 <= a.x + a.w && y0 >= a.y && y0 <= a.y + a.h);
+      if (over) {
+        ed.select(over.id);
+        return;
+      }
+    }
     if (tool === 'note') {
       ed.addAnnot({ id, page: index, type: 'note', x: x0 - 11, y: y0 - 11, text: '', color: '#f5b800' }, true);
       return;
@@ -275,7 +283,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
               if (m)
                 ed.changeAnnot(
                   current!.id,
-                  (c) => (c.type === 'move' ? { ...c, texts: c.texts.map((x, j) => (j === k ? { ...x, family: m.family, bold: m.bold, italic: m.italic } : x)) } : c),
+                  (c) => (c.type === 'move' ? { ...c, texts: c.texts.map((x, j) => (j === k ? { ...x, family: m.family, bold: m.bold, italic: x.italic || m.italic } : x)) } : c),
                   false,
                 );
             });
@@ -360,7 +368,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
         baseline: g.baseline,
         fontSize: Math.round(g.size * 100) / 100,
         bold: /bold|black|heavy|semibold|demi/i.test(name),
-        italic: /italic|oblique/i.test(name),
+        italic: isItalic(item, name),
         font: /courier|mono/.test(fam) ? 'mono' : /times|serif|georgia|garamond|cambria/.test(fam) && !/sans/.test(fam) ? 'serif' : 'sans',
         color: sampleInkRect(canvas, g.rect, k),
       });
@@ -535,7 +543,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       }
     }
     const bold = /bold|black|heavy|semibold|demi/i.test(pdfFontName);
-    const italic = /italic|oblique/i.test(pdfFontName);
+    const italic = item ? isItalic(item, pdfFontName) : /italic|oblique/i.test(pdfFontName);
     const fam = (span.style.fontFamily + ' ' + pdfFontName).toLowerCase();
     const font = /courier|mono/.test(fam) ? 'mono' : /times|serif|georgia|garamond|cambria|book/.test(fam) && !/sans/.test(fam) ? 'serif' : 'sans';
     const id = uid();
@@ -555,7 +563,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     // upgrade to the exact installed typeface once we know it
     if (pdfFontName)
       window.acro.matchFont(pdfFontName).then((m) => {
-        if (m) ed.changeAnnot(id, (a) => ({ ...a, family: m.family, bold: m.bold, italic: m.italic }) as Annot, false);
+        if (m) ed.changeAnnot(id, (a) => ({ ...a, family: m.family, bold: m.bold, italic: !!(a as { italic?: boolean }).italic || m.italic }) as Annot, false);
       });
   };
 
@@ -573,7 +581,10 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       if (!active) return;
       const bytes = await bake(await pdf.getData(), replacements.map(a => ({ ...a })), {},
         async () => page.getViewport({ scale: 1 }), {
-          loadSystemFont: async (family, bold, italic) => (await window.acro.loadFont({ family, bold, italic }))?.data ?? null,
+          loadSystemFont: async (family, bold, italic) => {
+            const r = await window.acro.loadFont({ family, bold, italic });
+            return r ? { data: r.data, italic: (r as { italic?: boolean }).italic } : null;
+          },
         });
       if (!active) return;
       preview = await loadPdf(bytes);
@@ -599,7 +610,9 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
     return () => { active = false; window.clearTimeout(timer); };
   }, [pdf, page, index, zoom, visible, replacements]);
   const showPreview = painted === replacements && visible;
-  const pageAnnots = ed.annots.filter((a) => a.page === index);
+  const pageAnnots = ed.annots.filter((a) => a.page === index && !(a.type === 'field' && a.gone));
+  // existing form fields being edited are drawn as boxes instead of live inputs
+  const editedWidgets = new Set(ed.annots.filter((a): a is FieldAnnot => a.type === 'field' && !!a.srcField).map((a) => a.srcField!.id));
   const pageHits = ed.hits.map((h, i) => ({ ...h, i })).filter((h) => h.page === index);
   const W = size.w * zoom;
   const H = size.h * zoom;
@@ -645,7 +658,7 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
 
       {/* live form fields */}
       <div className="form-layer">
-        {widgets.map((w) => (
+        {widgets.filter((w) => !editedWidgets.has(w.id)).map((w) => (
           <FormField key={w.id} w={w} page={page!} index={index} />
         ))}
       </div>
@@ -654,6 +667,19 @@ function PageViewInner({ pdf, index, size, rev, registerEl }: Props) {
       <div className="page-number">{index + 1}</div>
     </div>
   );
+}
+
+/**
+ * Is this text italic? Many PDFs have no italic font at all: Word slants an upright face (Tahoma, Calibri Light…)
+ * with the text matrix, so the name says nothing. A slant shows as the "up" direction not being square to the baseline.
+ */
+export function isItalic(item: { transform?: number[] }, fontName: string) {
+  if (/italic|oblique|[-_,](?:it|ital|obl)\b/i.test(fontName)) return true;
+  const t = item.transform;
+  if (!t || t.length < 4) return false;
+  const [a, b, c, d] = t;
+  const n = Math.hypot(a, b) * Math.hypot(c, d);
+  return n > 0 && Math.abs((a * c + b * d) / n) > 0.1; // sin(angle): 0.1 is about 6 degrees
 }
 
 const measureCtx = document.createElement('canvas').getContext('2d')!;

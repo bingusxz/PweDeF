@@ -20,6 +20,8 @@ export function onToast(l: L) {
 }
 export function errText(e: unknown) {
   const m = e instanceof Error ? e.message : String(e);
-  if (/encrypt/i.test(m)) return 'This PDF is password-protected/encrypted. Editing encrypted PDFs is not supported yet.';
-  return m;
+  if (/encrypt/i.test(m)) return 'This PDF is protected with a password. Open it again and type the password when asked.';
+  const lock = /FILE_LOCKED: (.*)/.exec(m);
+  if (lock) return `${lock[1]} is open in another program, so it cannot be overwritten. Close it there, or use Save as to make a copy.`;
+  return m.replace(/^Error invoking remote method '[^']*': (Error: )?/, '');
 }

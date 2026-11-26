@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Modal } from './Modal';
+import { BrandName } from './Logo';
 import { HELP } from '../help/helpContent';
 import { AUTHOR, LICENSES, PROJECT_URL, TERMS, TERMS_VERSION } from '../help/terms';
 
@@ -44,7 +45,7 @@ export function HelpDialog({ onClose, onTour, version, initial }: { onClose: () 
             Open-source licenses
           </button>
           <button className={`help-link ${pick.kind === 'about' ? 'on' : ''}`} onClick={() => setPick({ kind: 'about' })}>
-            About PweDeF
+            About <BrandName />
           </button>
         </nav>
 
@@ -107,7 +108,7 @@ export function HelpDialog({ onClose, onTour, version, initial }: { onClose: () 
           )}
           {pick.kind === 'about' && (
             <>
-              <h3>About PweDeF</h3>
+              <h3>About <BrandName /></h3>
               <p>
                 Version <b>{version || '-'}</b>. A PDF tool for editing, signing, converting and organizing.
               </p>

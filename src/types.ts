@@ -1,3 +1,4 @@
+import type { Protection } from './lib/pdfCrypt';
 // All annotation geometry is stored in "page units": the pdf.js viewport at scale 1
 // for the page's current rotation (origin top-left, y down, 1 unit = 1pt).
 // The renderer multiplies by zoom; the baker converts to PDF user space.
@@ -135,6 +136,12 @@ export type FieldAnnot = Base &
     /** radio button: the value this button stands for */
     exportValue?: string;
     checked?: boolean;
+    /** a field that already exists in the PDF: its widget is replaced by this one on save */
+    srcField?: { id: string; num: number; gen: number };
+    /** an existing field the user deleted: removed from the PDF on save */
+    gone?: boolean;
+    /** how the field looked when it was imported; an unchanged one is left untouched in the file */
+    srcSig?: string;
   };
 
 export type Annot =
@@ -173,6 +180,10 @@ export interface DocTab {
   rev: number;
   /** a tool to launch as soon as the document is open (from the Tool hub) */
   startAction?: string;
+  /** password protection to put back on when saving (the file was opened with a password, or the user set one) */
+  protect?: Protection | null;
+  /** the password settings changed and have not been saved yet */
+  protectDirty?: boolean;
 }
 
 export interface StyleState {

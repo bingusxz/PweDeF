@@ -1,5 +1,5 @@
 import { embeddedFace } from './embeddedFace';
-import { addField } from './formFields';
+import { addField, fieldSig, removeSourceWidgets } from './formFields';
 // Writes pending annotations + form values into the PDF bytes using pdf-lib.
 import {
   PDFDocument,
@@ -30,7 +30,7 @@ import {
   TextRenderingMode,
 } from 'pdf-lib';
 import type { PageViewport } from './pdf';
-import type { Annot, FormValues, MoveAnnot, TextAnnot } from '../types';
+import type { Annot, FieldAnnot, FormValues, MoveAnnot, TextAnnot } from '../types';
 import { moveGraphicsInRect, removeTextInRects } from './textremove';
 import { markStrokes } from './marks';
 import { NON_LATIN, dataUrlToBytes, hexToRgb01, normRect, winAnsiSafe } from './util';
@@ -39,7 +39,8 @@ export interface BakeOptions {
   flattenForms?: boolean;
   author?: string;
   /** returns the installed font file (TTF/OTF bytes) for a family + style, or null */
-  loadSystemFont?: (family: string, bold: boolean, italic: boolean) => Promise<Uint8Array | null>;
+  /** the font file, and whether it really is an italic face (so a missing italic can be slanted instead) */
+  loadSystemFont?: (family: string, bold: boolean, italic: boolean) => Promise<Uint8Array | { data: Uint8Array; italic?: boolean } | null>;
 }
 
 type ViewportGetter = (pageIndex: number) => Promise<PageViewport>;
@@ -93,24 +94,37 @@ export async function bake(
   };
   /** The real installed typeface (e.g. Tahoma Bold) so edited text matches the original exactly. */
   let fontkitReady = false;
+  /** installed fonts that were asked for in italic but have no italic face: drawn slanted */
+  const slanted = new Set<PDFFont>();
   const getSystemFont = async (family: string, bold: boolean, italic: boolean): Promise<PDFFont | null> => {
     if (!opts.loadSystemFont) return null;
     const key = `sys:${family}|${bold}|${italic}`;
     if (fontCache.has(key)) return fontCache.get(key)!;
-    const res = await opts.loadSystemFont(family, bold, italic);
-    if (!res) return null;
+    const loaded = await opts.loadSystemFont(family, bold, italic);
+    if (!loaded) return null;
+    const res = loaded instanceof Uint8Array ? loaded : loaded.data;
+    const realItalic = loaded instanceof Uint8Array ? true : loaded.italic !== false;
     if (!fontkitReady) {
       doc.registerFontkit((await import('@pdf-lib/fontkit')).default);
       fontkitReady = true;
     }
     try {
       const f = await doc.embedFont(res, { subset: true });
+      if (italic && !realItalic) slanted.add(f);
       fontCache.set(key, f);
       return f;
     } catch {
       return null;
     }
   };
+
+  // existing form fields that were edited or deleted: their original widgets go, the edited ones are added below
+  annots = annots.filter((a) => !(a.type === 'field' && a.srcField && !a.gone && a.srcSig === fieldSig(a)));
+  removeSourceWidgets(
+    doc,
+    annots.filter((a): a is FieldAnnot => a.type === 'field' && !!a.srcField).map((a) => ({ num: a.srcField!.num, gen: a.srcField!.gen })),
+  );
+  annots = annots.filter((a) => !(a.type === 'field' && a.gone));
 
   // ---- forms first so annotations can sit on top of flattened fields ----
   if (Object.keys(form).length || opts.flattenForms) {
@@ -239,7 +253,7 @@ export async function bake(
     // whiteouts & edit-text backgrounds go first so other markup draws above them
     const ordered = [...list].sort((a, b) => rank(a) - rank(b));
     for (const a of ordered)
-      await drawAnnot(doc, page, a, { P, box, rot, helv, helvBold, font: getFont, systemFont: getSystemFont, imageCache, author: opts.author });
+      await drawAnnot(doc, page, a, { P, box, rot, helv, helvBold, font: getFont, systemFont: getSystemFont, slanted: (f) => slanted.has(f), imageCache, author: opts.author });
   }
 
   return doc.save({ useObjectStreams: true });
@@ -268,6 +282,7 @@ interface Ctx {
   helvBold: PDFFont;
   font: (family: 'sans' | 'serif' | 'mono', bold: boolean, italic?: boolean) => Promise<PDFFont>;
   systemFont: (family: string, bold: boolean, italic: boolean) => Promise<PDFFont | null>;
+  slanted: (f: PDFFont) => boolean;
   imageCache: Map<string, any>;
   author?: string;
 }
@@ -468,14 +483,14 @@ async function drawAnnot(doc: PDFDocument, page: PDFPage, a: Annot, c: Ctx) {
         if (justify > 0) extra = justify;
         if (Math.abs(extra) < 0.01) {
           const o = turn(P(xl, baseline), P(a.x + a.w / 2, a.y + a.h / 2), spin);
-          page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot - spin) });
+          page.drawText(line, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot - spin), ...(c.slanted(font) ? { ySkew: degrees(12) } : {}) });
         } else {
           // word by word, advancing by the measured width plus the document's spacing
           let cx = xl;
           for (const word of line.split(' ')) {
             if (word) {
               const o = P(cx, baseline);
-              page.drawText(word, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot) });
+              page.drawText(word, { x: o.x, y: o.y, size: a.fontSize, font, color: col(a.color), rotate: degrees(rot), ...(c.slanted(font) ? { ySkew: degrees(12) } : {}) });
               cx += runW(word);
             }
             cx += runW(' ') + extra;

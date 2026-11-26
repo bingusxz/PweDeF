@@ -5,7 +5,7 @@ export type HubAction =
   | 'open' | 'merge' | 'compare' | 'batch' | 'wordToPdf' | 'excelToPdf' | 'pptToPdf' | 'imgToPdf' | 'webToPdf' | 'htmlToPdf' | 'txtToPdf'
   // open a PDF, then run inside the editor
   | 'split' | 'pages' | 'editText' | 'sign' | 'redact' | 'watermark' | 'numbers' | 'ocr' | 'compress' | 'flatten'
-  | 'toWord' | 'toExcel' | 'toPpt' | 'exportImages' | 'toText' | 'properties' | 'certSign' | 'sigCheck' | 'formDesigner';
+  | 'toWord' | 'toExcel' | 'toPpt' | 'exportImages' | 'toText' | 'properties' | 'certSign' | 'sigCheck' | 'formDesigner' | 'protect' | 'crop' | 'sheets' | 'headers' | 'pdfa';
 
 interface Tool {
   a: HubAction;
@@ -27,9 +27,11 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
       { a: 'formDesigner', icon: 'formInput', title: 'Form designer', desc: 'Add fillable fields to any PDF', isNew: true },
       { a: 'certSign', icon: 'shield', title: 'Digital signature', desc: 'Sign with a certificate (.pfx)', isNew: true },
       { a: 'sigCheck', icon: 'fileCheck', title: 'Check signatures', desc: 'Who signed, was it changed', isNew: true },
+      { a: 'protect', icon: 'lock', title: 'Protect PDF', desc: 'Password and permissions (AES-256)', isNew: true },
       { a: 'redact', icon: 'redact', title: 'Redact', desc: 'Remove sensitive content for good' },
       { a: 'watermark', icon: 'water', title: 'Watermark', desc: 'Text across every page' },
       { a: 'numbers', icon: 'hash', title: 'Page numbers', desc: 'Page or Bates numbering' },
+      { a: 'headers', icon: 'hash', title: 'Headers and footers', desc: 'Date, file name, page of total', isNew: true },
     ],
   },
   {
@@ -51,6 +53,8 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
       { a: 'merge', icon: 'merge', title: 'Merge', desc: 'Combine PDFs in your order' },
       { a: 'split', icon: 'split', title: 'Split', desc: 'By page ranges or every N pages' },
       { a: 'pages', icon: 'organize', title: 'Organize pages', desc: 'Reorder, rotate, delete pages' },
+      { a: 'crop', icon: 'fit', title: 'Crop pages', desc: 'Trim the margins', isNew: true },
+      { a: 'sheets', icon: 'copy', title: 'Booklet and n-up', desc: 'Several pages per sheet, or a folded booklet', isNew: true },
     ],
   },
   {
@@ -70,6 +74,7 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
     tools: [
       { a: 'compress', icon: 'minimize', title: 'Optimize', desc: 'Clean up the file' },
       { a: 'ocr', icon: 'ocr', title: 'Recognize text (OCR)', desc: 'Make scans searchable' },
+      { a: 'pdfa', icon: 'fileCheck', title: 'PDF/A archive copy', desc: 'For long-term keeping', isNew: true },
       { a: 'flatten', icon: 'layers2', title: 'Flatten', desc: 'Lock fields and markup in' },
       { a: 'compare', icon: 'columns', title: 'Compare PDFs', desc: 'Find what changed between two files', isNew: true },
       { a: 'batch', icon: 'batch', title: 'Batch process', desc: 'One action on many files' },

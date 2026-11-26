@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { loadPdf, pdfjs, type PDFDocumentProxy } from '../lib/pdf';
+import { loadPdf, pdfjs, renderToCanvas, type PDFDocumentProxy } from '../lib/pdf';
+import { applyProtection } from '../lib/pdfCrypt';
 import type { Annot, DocTab, RedactAnnot, Rect, Snapshot, StyleState, Tool } from '../types';
 import { EditorCtx, type EditorApi, type Hit, type PendingImage } from './EditorContext';
 import { PageView } from './PageView';
@@ -10,13 +11,19 @@ import { Icon } from './Icon';
 import { bake } from '../lib/bake';
 import { applyRedactions } from '../lib/redact';
 import { optimize, type OptimizeReport } from '../lib/optimize';
-import { signPdf } from '../lib/digitalSign';
+import { signPdf, verifySignatures } from '../lib/digitalSign';
 import { FieldProps } from './FieldProps';
 import { PickedPicture } from './PickedPicture';
 import { listPictures, pictureAt, pictureImage, whiteToTransparent } from '../lib/pagePictures';
 import { loadSigs, saveSigs } from '../lib/stamps';
 import { shrinkImage } from '../lib/imageShrink';
 import * as ops from '../lib/ops';
+import * as layout from '../lib/layout';
+import * as nav from '../lib/navdata';
+import { toPdfA, type PdfaReport } from '../lib/pdfa';
+import { PdfaReportDialog } from './LayoutDialogs';
+import { fieldSig, importFields, realEdits } from '../lib/formFields';
+import { AttachmentsPanel, BookmarksPanel } from './NavPanels';
 import { ocrDocument } from '../lib/ocr';
 import { exportImages, extractText } from '../lib/convert';
 import { baseName, downloadName, uid } from '../lib/util';
@@ -113,13 +120,15 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   }, []);
   const [selectedId, setSelected] = useState<string | null>(null);
   const [editingId, setEditing] = useState<string | null>(null);
-  const [panel, setPanel] = useState<'pages' | 'search' | 'comments' | null>('pages');
+  const [panel, setPanel] = useState<'pages' | 'search' | 'comments' | 'bookmarks' | 'attachments' | null>('pages');
   const [current, setCurrent] = useState(0);
   const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
   const [picked, setPicked] = useState<{ dataUrl: string; w: number; h: number; page: number; x: number; y: number } | null>(null);
   const [sigDialog, setSigDialog] = useState<null | { tab?: 'stamp'; field?: { page: number; rect: Rect } }>(null);
   const [toolDialog, setToolDialog] = useState<ToolKind | null>(null);
   const [toolsMenu, setToolsMenu] = useState(false);
+  const [menuLeft, setMenuLeft] = useState(false);
+  const [pdfaDone, setPdfaDone] = useState<{ report: PdfaReport; saved: string } | null>(null);
   const [busy, setBusy] = useState<{ msg: string; frac?: number } | null>(null);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<Hit[]>([]);
@@ -193,7 +202,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
           });
       })
       .catch((e) => {
-        if (alive) setLoadError(e?.name === 'PasswordException' ? 'This PDF is password protected. Password support is on the roadmap.' : errText(e));
+        if (alive) setLoadError(e?.name === 'PasswordException' ? 'This PDF is password protected. Close it and open it again to type the password.' : errText(e));
       });
     return () => {
       alive = false;
@@ -206,6 +215,29 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
     },
     [],
   );
+
+  // Form designer: the fields already in the PDF become editable boxes while the tool is on (see importFields)
+  const importedAt = useRef(-1);
+  useEffect(() => {
+    if (tool === 'field') {
+      if (!pdf || importedAt.current === loadId) return;
+      importedAt.current = loadId;
+      importFields(pdf, tabRef.current.annots, tabRef.current.bytes)
+        .then((found) => {
+          if (!found.length) return;
+          onUpdateRef.current((t) => {
+            const have = new Set(t.annots.map((a) => (a.type === 'field' && a.srcField ? a.srcField.id : '')));
+            const add = found.filter((f) => !have.has(f.srcField!.id));
+            return add.length ? { ...t, annots: [...t.annots, ...add] } : t;
+          });
+        })
+        .catch(() => {});
+    } else if (tabRef.current.annots.some((a) => a.type === 'field' && a.srcField && !a.gone && a.srcSig === fieldSig(a) && a.id !== selectedId)) {
+      // leaving the tool: fields that were not touched go back to being ordinary live fields
+      importedAt.current = -1;
+      onUpdateRef.current((t) => ({ ...t, annots: t.annots.filter((a) => !(a.type === 'field' && a.srcField && !a.gone && a.srcSig === fieldSig(a) && a.id !== selectedId)) }));
+    }
+  }, [tool, pdf, loadId]);
 
   // fit width on first load
   const didFit = useRef(false);
@@ -259,18 +291,21 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   const produceBytes = useCallback(
     async (opts: { flattenForms?: boolean } = {}) => {
       const t = tabRef.current;
-      const normal = t.annots.filter((a) => a.type !== 'redact');
+      const normal = realEdits(t.annots).filter((a) => a.type !== 'redact');
       const redacts = t.annots.filter((a): a is RedactAnnot => a.type === 'redact');
       let out = t.bytes;
       if (normal.length || Object.keys(t.form).length || opts.flattenForms)
         out = await bake(out, normal, t.form, getViewport, {
           ...opts,
           author: localStorage.getItem('acro.user') || undefined,
-          loadSystemFont: async (family, bold, italic) => (await window.acro.loadFont({ family, bold, italic }))?.data ?? null,
+          loadSystemFont: async (family, bold, italic) => {
+            const r = await window.acro.loadFont({ family, bold, italic });
+            return r ? { data: r.data, italic: (r as { italic?: boolean }).italic } : null;
+          },
         });
       if (redacts.length)
         out = await applyRedactions(out, redacts, (r) =>
-          toast(`Redacted ${r.boxes} area${r.boxes === 1 ? '' : 's'} on ${r.pages} page${r.pages === 1 ? '' : 's'}. ${r.textRemoved} piece${r.textRemoved === 1 ? '' : 's'} of text removed for good. Checked: nothing is left underneath.`, 'ok'),
+          toast(`Redacted ${r.boxes} area${r.boxes === 1 ? '' : 's'} on ${r.pages} page${r.pages === 1 ? '' : 's'}. ${r.textRemoved} piece${r.textRemoved === 1 ? '' : 's'} of text removed for good. ${r.asPicture ? `${r.asPicture} page${r.asPicture === 1 ? '' : 's'} became a picture because something other than plain text was under a box.` : 'The page text stays editable.'} Checked: nothing is left underneath.`, 'ok'),
         );
       return out;
     },
@@ -301,6 +336,35 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   const commitRef = useRef<(() => void) | undefined>(undefined);
   commitRef.current = () => void run('Removing the picture…', async (b) => b);
 
+  // ---------- print ----------
+  const printRef = useRef<() => void>(() => {});
+  printRef.current = async () => {
+    setBusy({ msg: 'Getting the pages ready to print…' });
+    try {
+      const bytes = await produceBytes();
+      const doc = await loadPdf(bytes);
+      try {
+        const pages: { url: string; w: number; h: number }[] = [];
+        for (let i = 1; i <= doc.numPages; i++) {
+          const pg = await doc.getPage(i);
+          const vp = pg.getViewport({ scale: 1 });
+          const canvas = await renderToCanvas(pg, 200 / 72);
+          pages.push({ url: canvas.toDataURL('image/jpeg', 0.92), w: vp.width, h: vp.height });
+          canvas.width = canvas.height = 0;
+        }
+        setBusy(null);
+        const r = await window.acro.printPages(pages);
+        if (r !== 'ok' && r !== 'cancelled') toast(`Could not print: ${r}`, 'error');
+      } finally {
+        void doc.destroy();
+      }
+    } catch (e) {
+      toast(errText(e), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   // ---------- save ----------
   const save = useCallback(
     async (as = false) => {
@@ -314,11 +378,22 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
       setBusy({ msg: 'Saving…' });
       try {
         const out = await produceBytes();
+        const toDisk = await applyProtection(out, t.protect);
         let path = t.path;
         if (as || !path) {
-          path = await window.acro.saveFile(t.path ? t.path : t.name.endsWith('.pdf') ? t.name : t.name + '.pdf', out);
+          path = await window.acro.saveFile(t.path ? t.path : t.name.endsWith('.pdf') ? t.name : t.name + '.pdf', toDisk);
           if (!path) return false;
-        } else await window.acro.writeFile(path, out);
+        } else {
+          try {
+            await window.acro.writeFile(path, toDisk);
+          } catch (e) {
+            // the file is open in another program: offer a copy instead of just failing
+            if (!/FILE_LOCKED/.test(String(e))) throw e;
+            toast(errText(e), 'info');
+            path = await window.acro.saveFile(t.name.endsWith('.pdf') ? t.name : t.name + '.pdf', toDisk);
+            if (!path) return false;
+          }
+        }
         const name = path.split(/[\\/]/).pop() || t.name;
         const changedBytes = out !== t.bytes;
         onUpdate((cur) => ({
@@ -330,6 +405,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
           path,
           name,
           dirty: false,
+          protectDirty: false,
           rev: changedBytes ? cur.rev + 1 : cur.rev,
         }));
         toast(`Saved ${name}`, 'ok');
@@ -377,6 +453,11 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
         if (cur && cur.type === 'move' && cur.picture && cur.dx > -4000) {
           mutate((t) => ({ annots: t.annots.map((a) => (a.id === id ? ({ ...a, dx: -5000, dy: 0 } as Annot) : a)) }));
           setTimeout(() => commitRef.current?.(), 80);
+          return;
+        }
+        if (cur && cur.type === 'field' && cur.srcField) {
+          mutate((t) => ({ annots: t.annots.map((a) => (a.id === id ? ({ ...a, gone: true } as Annot) : a)) }));
+          setSelected((s) => (s === id ? null : s));
           return;
         }
         if (cur && cur.type === 'replace' && cur.srcAnnot) {
@@ -560,11 +641,19 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
     setBusy({ msg: 'Signing…' });
     try {
       const bytes = await produceBytes();
+      const earlier = await verifySignatures(tabRef.current.bytes);
+      if (earlier.length && bytes !== tabRef.current.bytes) throw new Error('This PDF is already signed, and you have unsaved edits. Adding them would break the earlier signature. Undo the edits first (or save a separate copy), then add your signature.');
       const signed = await signPdf(bytes, req.cred, { reason: req.reason || undefined, location: req.location || undefined, contact: req.contact || undefined, visible });
       setBusy(null);
       const saved = await window.acro.saveFile(downloadName(tab.name, '-signed'), signed, [{ name: 'PDF', extensions: ['pdf'] }]);
       if (saved) {
-        toast(`Signed copy saved as ${saved.split(/[\/]/).pop()}. Don't edit it afterwards, or the signature will break.`, 'ok');
+        const broken = earlier.some((r) => r.status === 'invalid');
+        toast(
+          broken
+            ? `Signed copy saved as ${saved.split(/[\\/]/).pop()}. The earlier signature was already broken by changes made before this.`
+            : `Signed copy saved as ${saved.split(/[\\/]/).pop()}.${earlier.length ? ' The earlier signature is still intact.' : ''} Don't edit it afterwards, or the signatures will break.`,
+          broken ? 'info' : 'ok',
+        );
         window.acro.showItem(saved);
       }
     } catch (e) {
@@ -646,6 +735,85 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
         );
       }
     },
+    pdfa: async () => {
+      setToolDialog(null);
+      setBusy({ msg: 'Making the PDF/A copy…' });
+      try {
+        const { bytes: out, report } = await toPdfA(await produceBytes());
+        setBusy(null);
+        const saved = await window.acro.saveFile(downloadName(tab.name, '-PDFA'), out, [{ name: 'PDF', extensions: ['pdf'] }]);
+        if (saved) {
+          setPdfaDone({ report, saved: saved.split(/[\\/]/).pop() || saved });
+          window.acro.showItem(saved);
+        }
+      } catch (e) {
+        toast(errText(e), 'error');
+      } finally {
+        setBusy(null);
+      }
+    },
+    crop: (r) => {
+      setToolDialog(null);
+      run(r.reset ? 'Resetting the crop…' : 'Cropping…', (b) => {
+        const pages = layout.pickPages(r.pages, pdf!.numPages);
+        if (!pages.length) throw new Error('No pages match that range.');
+        return r.reset ? layout.resetCrop(b, pages) : layout.cropPages(b, pages, r.margins);
+      });
+    },
+    sheets: async (r) => {
+      setToolDialog(null);
+      setBusy({ msg: r.mode === 'booklet' ? 'Making the booklet…' : 'Arranging the pages…' });
+      try {
+        const base = await produceBytes();
+        const n = (await ops.pageCount(base)) || 1;
+        const plan = r.mode === 'booklet' ? layout.bookletPlan(n, r.rightToLeft) : layout.nUpPlan(n, r.cols * r.rows);
+        const out = await layout.imposePages(base, plan, r.cols, r.rows, {
+          size: r.paper === 'first' ? 'first' : layout.PAPER[r.paper],
+          landscape: r.landscape,
+          margin: r.mode === 'booklet' ? 14 : 24,
+          gap: r.mode === 'booklet' ? 0 : 12,
+          border: r.border,
+        });
+        openNew(out, downloadName(tab.name, r.mode === 'booklet' ? '-booklet' : `-${r.cols * r.rows}up`));
+        toast(r.mode === 'booklet' ? 'Booklet ready in a new tab. Print double-sided, flip on the short edge.' : 'Done. The arranged copy is open in a new tab.', 'ok');
+      } catch (e) {
+        toast(errText(e), 'error');
+      } finally {
+        setBusy(null);
+      }
+    },
+    headers: (r) => {
+      setToolDialog(null);
+      run('Adding headers and footers…', async (b) => {
+        if (!layout.pickPages(r.pages, pdf!.numPages).length) throw new Error('No pages match that range.');
+        const all = Object.values(r.header).concat(Object.values(r.footer)).join('');
+        const font = await resolveNumbers({ format: all, position: 'bottom-center', size: r.size, start: 1 });
+        const now = new Date();
+        return layout.headersFooters(b, {
+          header: r.header,
+          footer: r.footer,
+          size: r.size,
+          color: r.color,
+          bold: r.bold,
+          margin: r.marginMm * (72 / 25.4),
+          start: r.start,
+          pages: r.pages,
+          skipFirst: r.skipFirst,
+          fontBytes: font.fontBytes,
+          context: {
+            file: tab.name,
+            title: (await ops.getMetadata(b)).title || baseName(tab.name),
+            date: now.toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' }),
+            time: now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }),
+          },
+        });
+      });
+    },
+    protect: (p) => {
+      setToolDialog(null);
+      onUpdate((t) => ({ ...t, protect: p, protectDirty: true, dirty: true }));
+      toast(p ? 'Password set. It is applied when you save.' : 'Password removed. The next save will be unprotected.', 'ok');
+    },
     properties: (m) => {
       setToolDialog(null);
       run('Updating properties…', (b) => ops.setMetadata(b, m));
@@ -699,7 +867,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   /** pdf.js doc that includes any unsaved edits */
   const currentPdf = async () => {
     const t = tabRef.current;
-    if (!t.annots.length && !Object.keys(t.form).length) return { doc: pdf!, temp: false };
+    if (!realEdits(t.annots).length && !Object.keys(t.form).length) return { doc: pdf!, temp: false };
     return { doc: await loadPdf(await produceBytes()), temp: true };
   };
 
@@ -764,7 +932,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
     if (!pdf || !a) return;
     onUpdate((t) => ({ ...t, startAction: undefined }));
     const dialogs: Record<string, ToolKind> = {
-      split: 'split', watermark: 'watermark', numbers: 'numbers', ocr: 'ocr', exportImages: 'exportImages', toWord: 'toWord', properties: 'properties', certSign: 'certSign', sigCheck: 'sigCheck',
+      split: 'split', watermark: 'watermark', numbers: 'numbers', ocr: 'ocr', exportImages: 'exportImages', toWord: 'toWord', properties: 'properties', certSign: 'certSign', sigCheck: 'sigCheck', protect: 'protect', pdfa: 'pdfa', crop: 'crop', sheets: 'sheets', headers: 'headers',
     };
     if (dialogs[a]) setToolDialog(dialogs[a]);
     else if (a === 'sign') setSigDialog({});
@@ -894,7 +1062,10 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
       const target = e.target as HTMLElement;
       const typing = /INPUT|TEXTAREA|SELECT/.test(target.tagName) || target.isContentEditable;
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === 's') {
+      if (mod && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        printRef.current();
+      } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
         save(e.shiftKey);
       } else if (mod && e.key.toLowerCase() === 'z' && !typing) {
@@ -946,7 +1117,7 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
   });
 
   const selected = tab.annots.find((a) => a.id === selectedId) || null;
-  const pendingCount = tab.annots.length + Object.keys(tab.form).length;
+  const pendingCount = realEdits(tab.annots).length + Object.keys(tab.form).length;
   const redactCount = tab.annots.filter((a) => a.type === 'redact').length;
 
   if (loadError)
@@ -973,14 +1144,18 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
             {saveMenu && (
               <div className="menu more-menu" onMouseLeave={() => setSaveMenu(false)} onClick={() => setSaveMenu(false)}>
                 <div className="menu-head">Save as</div>
-                <button onClick={() => save(true)}><Icon name="save" /> PDF (a copy)…</button>
-                <button onClick={() => setToolDialog('toWord')}><Icon name="word" /> Word document (.docx)…</button>
+                <button onClick={() => save(true)}><Icon name="save" /> PDF (a copy)</button>
+                <button onClick={() => printRef.current()}><Icon name="print" /> Print (Ctrl+P)</button>
+                <button onClick={() => setToolDialog('toWord')}><Icon name="word" /> Word document (.docx)</button>
                 <button onClick={() => exportOffice('excel')}><Icon name="excel" /> Excel workbook (.xlsx)</button>
-                <button onClick={() => setToolDialog('toPpt')}><Icon name="ppt" /> PowerPoint (.pptx)…</button>
-                <button onClick={() => setToolDialog('exportImages')}><Icon name="image" /> Images (JPG or PNG)…</button>
+                <button onClick={() => setToolDialog('toPpt')}><Icon name="ppt" /> PowerPoint (.pptx)</button>
+                <button onClick={() => setToolDialog('exportImages')}><Icon name="image" /> Images (JPG or PNG)</button>
                 <button onClick={quickActions.exportText}><Icon name="txt" /> Plain text (.txt)</button>
               </div>
             )}
+            <button className="icon-btn" title="Print (Ctrl+P)" aria-label="Print" onClick={() => printRef.current()}>
+              <Icon name="print" />
+            </button>
             <button className="icon-btn" title="Undo (Ctrl+Z)" disabled={!tab.past.length} onClick={undo}>
               <Icon name="undo" />
             </button>
@@ -1090,38 +1265,53 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
             <span className="muted">/ {pdf?.numPages || '…'}</span>
           </div>
           <div className="tb-group rel">
-            <button className={`tb-btn ${toolsMenu ? 'on' : ''}`} onClick={() => setToolsMenu((v) => !v)}>
-              <Icon name="tools" /> All tools <Icon name="chevD" size={14} />
+            <button
+              className={`tb-btn ${toolsMenu ? 'on' : ''}`}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setMenuLeft(r.left + r.width / 2 < window.innerWidth / 2); // open toward the middle of the window so it never runs off an edge
+                setToolsMenu((v) => !v);
+              }}
+            >
+              <Icon name="tools" /> <span className="tb-label">All tools</span> <Icon name="chevD" size={14} />
             </button>
             {toolsMenu && (
-              <div className="menu" onMouseLeave={() => setToolsMenu(false)} onClick={() => setToolsMenu(false)}>
+              <div className={`menu ${menuLeft ? 'menu-left' : ''}`} onMouseLeave={() => setToolsMenu(false)} onClick={() => setToolsMenu(false)}>
                 <div className="menu-head">Organize</div>
                 <button onClick={quickActions.combine}><Icon name="merge" /> Combine (append PDFs)</button>
-                <button onClick={() => setToolDialog('split')}><Icon name="split" /> Split…</button>
+                <button onClick={() => setToolDialog('split')}><Icon name="split" /> Split</button>
                 <button onClick={() => setPanel('pages')}><Icon name="pages" /> Organize pages</button>
-                <div className="menu-head">Protect & finish</div>
+                <div className="menu-head">Forms</div>
                 <button onClick={() => setTool('field')}><Icon name="form" /> Form designer: add fields</button>
                 <button onClick={() => run('Making the fields fillable…', async (b) => b)}><Icon name="check" /> Test the form (apply fields)</button>
-                <button onClick={() => setToolDialog('compare')}><Icon name="copy" /> Compare with another PDF…</button>
-                <button onClick={() => setToolDialog('certSign')}><Icon name="sign" /> Sign with a certificate…</button>
-                <button onClick={() => setToolDialog('sigCheck')}><Icon name="check" /> Check signatures…</button>
-                <button onClick={() => setTool('redact')}><Icon name="redact" /> Redact</button>
-                <button onClick={() => setToolDialog('watermark')}><Icon name="water" /> Watermark…</button>
-                <button onClick={() => setToolDialog('numbers')}><Icon name="hash" /> Page numbers / Bates…</button>
                 <button onClick={quickActions.flatten}><Icon name="form" /> Flatten forms & markup</button>
+                <div className="menu-head">Sign & protect</div>
+                <button onClick={() => setToolDialog('protect')}><Icon name="lock" /> Protect with a password</button>
+                <button onClick={() => setToolDialog('certSign')}><Icon name="sign" /> Sign with a certificate</button>
+                <button onClick={() => setToolDialog('sigCheck')}><Icon name="check" /> Check signatures</button>
+                <button onClick={() => setTool('redact')}><Icon name="redact" /> Redact</button>
+                <div className="menu-head">Page layout</div>
+                <button onClick={() => setToolDialog('watermark')}><Icon name="water" /> Watermark</button>
+                <button onClick={() => setToolDialog('numbers')}><Icon name="hash" /> Page numbers / Bates</button>
+                <button onClick={() => setToolDialog('headers')}><Icon name="hash" /> Headers and footers</button>
+                <button onClick={() => setToolDialog('crop')}><Icon name="fit" /> Crop pages</button>
+                <button onClick={() => setToolDialog('sheets')}><Icon name="copy" /> Pages per sheet / booklet</button>
+                <div className="menu-head">Archive & compare</div>
+                <button onClick={() => setToolDialog('compare')}><Icon name="copy" /> Compare with another PDF</button>
+                <button onClick={() => setToolDialog('pdfa')}><Icon name="fileCheck" /> Save as PDF/A</button>
                 <button onClick={quickActions.compress}><Icon name="compress" /> Optimize file size</button>
                 <div className="menu-head">Convert</div>
-                <button onClick={() => setToolDialog('toWord')}><Icon name="word" /> Export to Word…</button>
+                <button onClick={() => setToolDialog('toWord')}><Icon name="word" /> Export to Word</button>
                 <button onClick={() => exportOffice('excel')}><Icon name="excel" /> Export to Excel</button>
                 <button onClick={() => setToolDialog('toPpt')}><Icon name="ppt" /> Export to PowerPoint</button>
                 <div className="menu-head">Scan & export</div>
-                <button onClick={() => setToolDialog('ocr')}><Icon name="ocr" /> Recognize text (OCR)…</button>
-                <button onClick={() => setToolDialog('exportImages')}><Icon name="image" /> Export as images…</button>
+                <button onClick={() => setToolDialog('ocr')}><Icon name="ocr" /> Recognize text (OCR)</button>
+                <button onClick={() => setToolDialog('exportImages')}><Icon name="image" /> Export as images</button>
                 <button onClick={quickActions.exportText}><Icon name="file" /> Export as text</button>
-                <button onClick={quickActions.saveCopyFlattened}><Icon name="download" /> Save flattened copy…</button>
+                <button onClick={quickActions.saveCopyFlattened}><Icon name="download" /> Save flattened copy</button>
                 <div className="menu-head">Document</div>
-                <button onClick={() => setToolDialog('properties')}><Icon name="info" /> Properties…</button>
-                <button onClick={() => save(true)}><Icon name="save" /> Save as…</button>
+                <button onClick={() => setToolDialog('properties')}><Icon name="info" /> Properties</button>
+                <button onClick={() => save(true)}><Icon name="save" /> Save as</button>
               </div>
             )}
           </div>
@@ -1148,6 +1338,8 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
                 ['pages', 'pages', 'Pages'],
                 ['search', 'search', 'Search'],
                 ['comments', 'comments', 'Comments'],
+                ['bookmarks', 'bookmark', 'Bookmarks'],
+                ['attachments', 'paperclip', 'Files'],
               ] as const
             ).map(([k, icon, label]) => (
               <button key={k} className={`rail-btn ${panel === k ? 'on' : ''}`} title={label} aria-pressed={panel === k} onClick={() => setPanel(panel === k ? null : k)}>
@@ -1159,6 +1351,17 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
           {panel && pdf && (
             <aside className="side-panel">
               {panel === 'pages' && <Thumbnails pdf={pdf} rev={loadId} current={current} actions={pageActions} />}
+              {panel === 'bookmarks' && (
+                <BookmarksPanel pdf={pdf} rev={loadId} current={current} onGo={(p) => scrollTo(p)} onSave={(tree) => run('Updating bookmarks…', (b) => nav.writeOutline(b, tree))} />
+              )}
+              {panel === 'attachments' && (
+                <AttachmentsPanel
+                  pdf={pdf}
+                  rev={loadId}
+                  onAttach={(f) => run('Attaching the file…', (b) => nav.attachFile(b, f))}
+                  onRemove={(name) => run('Removing the file…', (b) => nav.removeAttachment(b, name))}
+                />
+              )}
               {panel === 'search' && (
                 <div className="search-panel">
                   <div className="search-row">
@@ -1275,8 +1478,9 @@ export function Editor({ tab, onUpdate, openNew, registerSave }: Props) {
           />
         )}
         {sigDialog && <SignatureDialog initialTab={sigDialog.tab} onPick={onPickImage} onClose={() => setSigDialog(null)} />}
+        {pdfaDone && <PdfaReportDialog report={pdfaDone.report} saved={pdfaDone.saved} onClose={() => setPdfaDone(null)} />}
         {toolDialog && pdf && (
-          <ToolDialog kind={toolDialog} bytes={tab.bytes} numPages={pdf.numPages} onClose={() => setToolDialog(null)} h={toolHandlers} />
+          <ToolDialog kind={toolDialog} currentPage={current} protection={tab.protect} bytes={tab.bytes} numPages={pdf.numPages} onClose={() => setToolDialog(null)} h={toolHandlers} />
         )}
       </div>
     </EditorCtx.Provider>
@@ -1326,7 +1530,7 @@ function ContextBar({
     underline: 'Select text to underline it.',
     strike: 'Select text to strike it through.',
     whiteout: 'Drag to cover content with white (visual only. Use Redact to truly remove).',
-    redact: `Drag over anything sensitive. On save, marked pages are rebuilt so the content is gone for good.${redactCount ? ` (${redactCount} marked)` : ''}`,
+    redact: `Drag over anything sensitive. On save, the words under each box are removed for good. If a picture or drawing is under a box, that page becomes a picture instead. Keep the original.${redactCount ? ` (${redactCount} marked)` : ''}`,
     note: 'Click to drop a comment.',
     mark: 'Click the centre of a box to tick it. Works on printed boxes that are not real form fields.',
     move: 'Drag a box around text, lines, boxes or pictures, then drag the box where you want it. Saved as a real move, not a picture.',
@@ -1334,7 +1538,7 @@ function ContextBar({
     place: pendingImage ? 'Click where you want to place it. Esc to cancel.' : '',
     certsign: 'Drag a box where the signature should appear. Esc to cancel.',
     pickup: 'Click a picture on the page, such as a signature. You can then save it as one of your signatures or place a copy.',
-    field: 'Click to drop a field, or drag to size it. Pick the type here; click a field to rename it, change its choices or make it required. Save, or “Test the form”, makes them fillable.',
+    field: 'Click to drop a field or drag to size it. Click a field to change it. Save makes them fillable.',
     hand: 'Drag to pan.',
   };
 
@@ -1536,12 +1740,12 @@ function ContextBar({
         </>
       )}
       {!selected && hints[tool] && <span className="ctx-hint">{hints[tool]}</span>}
+      {selected && (selected.type === 'text' || selected.type === 'replace') && <span className="ctx-hint">Double-click to edit text</span>}
       {selected && (
-        <button className="small danger" onClick={onDelete}>
+        <button className="small danger ctx-delete" onClick={onDelete}>
           <Icon name="trash" size={14} /> Delete
         </button>
       )}
-      {selected && (selected.type === 'text' || selected.type === 'replace') && <span className="ctx-hint">Double-click to edit text</span>}
     </div>
   );
 }

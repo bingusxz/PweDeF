@@ -1,6 +1,7 @@
 // Page-level operations (Acrobat "Organize Pages", "Combine", "Split", watermark, numbering...).
 import { PDFArray, PDFDocument, StandardFonts, rgb, degrees, PageSizes } from 'pdf-lib';
 import { hexToRgb01, winAnsiSafe } from './util';
+import { pruneUnreachable } from './prune';
 
 const load = (b: Uint8Array) => PDFDocument.load(b, { updateMetadata: false });
 const save = (d: PDFDocument) => d.save({ useObjectStreams: true });
@@ -22,6 +23,9 @@ export async function deletePages(bytes: Uint8Array, indices: number[]) {
   const doc = await load(bytes);
   if (indices.length >= doc.getPageCount()) throw new Error('A PDF must keep at least one page.');
   [...indices].sort((a, b) => b - a).forEach((i) => doc.removePage(i));
+  // a removed page's content would otherwise stay inside the saved file
+  await doc.flush();
+  pruneUnreachable(doc);
   return save(doc);
 }
 

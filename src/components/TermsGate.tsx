@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wordmark } from './Logo';
+import { BrandName } from './Logo';
 import { AUTHOR, TERMS, TERMS_VERSION } from '../help/terms';
 
 const KEY = 'acro.terms';
@@ -28,8 +28,7 @@ export function TermsGate({ onAccept }: { onAccept: () => void }) {
     <div className="terms-gate" role="dialog" aria-modal="true" aria-label="Terms of use">
       <div className="terms-card">
         <header>
-          <Wordmark />
-          <h2>Welcome to PweDeF</h2>
+          <h2>Welcome to <BrandName /></h2>
           <p>Please read and accept the terms of use. It takes a minute.</p>
           <small className="terms-by">Created by {AUTHOR} · free and open source</small>
         </header>

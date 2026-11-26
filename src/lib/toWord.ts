@@ -6,8 +6,7 @@
 import type { PDFDocumentProxy } from './pdf';
 import { extractPage, type PdfJsLib } from './pdfExtract';
 import {
-  detectTables,
-  fillTables,
+  findTables,
   groupLines,
   lineSegments,
   linePieces,
@@ -183,14 +182,13 @@ export async function pdfToDocx(pdf: PDFDocumentProxy, pdfjs: PdfJsLib, mode: Wo
       }
       rows.push(new D.TableRow({ children: cells }));
     }
-    return new D.Table({ rows, columnWidths: widths, width: { size: widths.reduce((a, b) => a + b, 0), type: D.WidthType.DXA } });
+    return new D.Table({ rows, ...(t.borderless ? { borders: D.TableBorders.NONE } : {}), columnWidths: widths, width: { size: widths.reduce((a, b) => a + b, 0), type: D.WidthType.DXA } });
   };
 
   for (let i = 1; i <= pdf.numPages; i++) {
     onProgress(i, pdf.numPages);
     const data = await extractPage(pdf, i, pdfjs);
-    const tables = detectTables(data.hlines, data.vlines);
-    const rest = fillTables(tables, data.runs);
+    const { tables, rest } = findTables(data);
     const blocks = readingBlocks(rest);
     const pageLeft = Math.min(...[...rest.map((r) => r.x), ...tables.map((t) => t.box.x)], data.w);
     const items: Flow[] = [];

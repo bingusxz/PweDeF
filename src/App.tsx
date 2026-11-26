@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DocTab } from './types';
+import { PasswordPrompt } from './components/MoreDialogs';
+import { decryptPdf, isEncrypted, WrongPasswordError, type Protection } from './lib/pdfCrypt';
 import type { OpenedFile } from './global';
 import { Editor } from './components/Editor';
 import { BatchDialog } from './components/BatchDialog';
 import { MergeDialog } from './components/MergeDialog';
 import { CompareDialog } from './components/CompareDialog';
 import { HelpDialog } from './components/HelpDialog';
+import { WhatsNew } from './components/WhatsNew';
+import { whatsNewFor, type Release } from './help/whatsNew';
 import { Tour, tourDone } from './components/Tour';
 import { TermsGate, termsAccepted } from './components/TermsGate';
 import { EDITOR_TOUR, HOME_TOUR } from './help/tours';
@@ -32,8 +36,8 @@ const loadRecent = (): Recent[] => {
   }
 };
 
-function newTab(bytes: Uint8Array, name: string, path: string | null): DocTab {
-  return { id: uid(), name, path, bytes, annots: [], form: {}, past: [], future: [], dirty: !path, rev: 0 };
+function newTab(bytes: Uint8Array, name: string, path: string | null, protect?: Protection | null): DocTab {
+  return { id: uid(), name, path, bytes, annots: [], form: {}, past: [], future: [], dirty: !path, rev: 0, protect: protect ?? null };
 }
 
 export default function App() {
@@ -50,6 +54,10 @@ export default function App() {
   const [update, setUpdate] = useState<{ version: string; ready: boolean; percent?: number } | null>(null);
   const [updHidden, setUpdHidden] = useState(false);
   const [version, setVersion] = useState('');
+  const [news, setNews] = useState<Release | null>(null);
+  useEffect(() => {
+    if (version && termsOk) setNews(whatsNewFor(version));
+  }, [version, termsOk]);
   const [dragging, setDragging] = useState(false);
   const saveFns = useRef(new Map<string, (as?: boolean) => Promise<boolean>>());
   const tabsRef = useRef(tabs);
@@ -65,23 +73,62 @@ export default function App() {
     setRecent(next);
   };
 
-  const openFiles = useCallback((files: OpenedFile[]) => {
+  const [pwAsk, setPwAsk] = useState<{ name: string; wrong: boolean; resolve: (pw: string | null) => void } | null>(null);
+  const askPassword = (name: string, wrong: boolean) => new Promise<string | null>((resolve) => setPwAsk({ name, wrong, resolve }));
+  /** Protected files are opened here, before a tab exists, so the editor only ever sees a plain PDF. */
+  const unlock = async (f: OpenedFile): Promise<{ data: Uint8Array; protect: Protection | null } | null> => {
+    if (!(await isEncrypted(f.data))) return { data: f.data, protect: null };
+    try {
+      // some files only limit printing or editing and open without a password
+      const r = await decryptPdf(f.data, '');
+      const p = r.protection.permissions;
+      if (!(p.print && p.edit && p.copy && p.annotate && p.fillForms && p.assemble)) toast(`${f.name} had limits on printing or editing. They are not kept when you save.`, 'info');
+      return { data: r.bytes, protect: null };
+    } catch (e) {
+      if (!(e instanceof WrongPasswordError)) {
+        toast(`${f.name}: ${errText(e)}`, 'error');
+        return null;
+      }
+    }
+    let wrong = false;
+    for (;;) {
+      const pw = await askPassword(f.name, wrong);
+      setPwAsk(null);
+      if (pw === null) return null;
+      try {
+        const r = await decryptPdf(f.data, pw);
+        toast('Saving keeps the password you just typed. Any other password this file had is replaced.', 'info');
+        return { data: r.bytes, protect: r.protection };
+      } catch (e) {
+        if (!(e instanceof WrongPasswordError)) {
+          toast(`${f.name}: ${errText(e)}`, 'error');
+          return null;
+        }
+        wrong = true;
+      }
+    }
+  };
+
+  const openFiles = useCallback(async (files: OpenedFile[]) => {
     if (!files.length) return;
     let lastId = '';
-    const next = [...tabsRef.current];
+    const made: DocTab[] = [];
     for (const f of files) {
-      const existing = next.find((t) => t.path && t.path === f.path);
+      const existing = [...tabsRef.current, ...made].find((t) => t.path && t.path === f.path);
       if (existing) {
         lastId = existing.id;
         continue;
       }
+      const opened = await unlock(f);
+      if (!opened) continue;
       const real = f.path && !f.path.startsWith('dropped:') ? f.path : null;
-      const t = newTab(f.data, f.name, real);
-      next.push(t);
+      const t = newTab(opened.data, f.name, real, opened.protect);
+      made.push(t);
       lastId = t.id;
     }
-    tabsRef.current = next;
-    setTabs(next);
+    if (!lastId) return;
+    tabsRef.current = [...tabsRef.current, ...made];
+    setTabs(tabsRef.current);
     setActive(lastId);
     files.filter((f) => f.path && !f.path.startsWith('dropped:')).forEach(remember);
   }, []);
@@ -175,7 +222,7 @@ export default function App() {
         // tools that run on a PDF: pick one, open it, then launch the tool
         const files = await window.acro.openPdfs({ multi: false, title: 'Choose a PDF' });
         if (!files.length) return;
-        openFiles(files);
+        await openFiles(files);
         const id = tabsRef.current.find((t) => t.path === files[0].path)?.id;
         if (id) setTabs((cur) => cur.map((t) => (t.id === id ? { ...t, startAction: a } : t)));
       }
@@ -185,7 +232,7 @@ export default function App() {
   const closeTab = async (id: string) => {
     const t = tabsRef.current.find((x) => x.id === id);
     if (!t) return;
-    if (t.dirty && (t.annots.length || Object.keys(t.form).length || t.past.length)) {
+    if (t.dirty && (t.annots.length || Object.keys(t.form).length || t.past.length || t.protectDirty)) {
       const choice = window.confirm(`"${t.name}" has unsaved changes.\n\nOK = save first, Cancel = discard changes`);
       if (choice) {
         const ok = await saveFns.current.get(id)?.(false);
@@ -206,7 +253,7 @@ export default function App() {
     const offs = [
       window.acro.onOpenFiles(openFiles),
       window.acro.onBeforeClose(() => {
-        const dirty = tabsRef.current.filter((t) => t.dirty && (t.annots.length || Object.keys(t.form).length || t.past.length));
+        const dirty = tabsRef.current.filter((t) => t.dirty && (t.annots.length || Object.keys(t.form).length || t.past.length || t.protectDirty));
         if (!dirty.length || window.confirm(`You have unsaved changes in ${dirty.length} document(s). Quit anyway?`)) window.acro.confirmClose();
       }),
       window.acro.onUpdateAvailable((v) => setUpdate({ version: v, ready: false })),
@@ -375,7 +422,7 @@ export default function App() {
       {batch && <BatchDialog onClose={() => setBatch(false)} />}
       {update && !updHidden && (
         <div className={'update-float' + (update.ready ? ' ready' : '')} role="status" aria-live="polite">
-          <b>{update.ready ? 'Update ready' : 'Updating PweDeF'}</b>
+          <b>{update.ready ? 'Update ready' : <>Updating <BrandName /></>}</b>
           <span>{update.ready ? 'Version ' + update.version + ' is downloaded. Restart to finish.' : 'Downloading version ' + update.version + '… ' + (update.percent ?? 0) + '%'}</span>
           {!update.ready && (
             <span className="update-bar">
@@ -393,6 +440,7 @@ export default function App() {
         </div>
       )}
       {compareOpen && <CompareDialog onClose={() => setCompareOpen(false)} />}
+      {pwAsk && <PasswordPrompt name={pwAsk.name} wrong={pwAsk.wrong} onSubmit={(pw) => pwAsk.resolve(pw)} onCancel={() => pwAsk.resolve(null)} />}
       {helpOpen && (
         <HelpDialog
           version={version}
@@ -403,6 +451,7 @@ export default function App() {
           }}
         />
       )}
+      {news && !tour && <WhatsNew release={news} onClose={() => setNews(null)} />}
       {tour && <Tour key={tour} id={tour} steps={tour === 'home' ? HOME_TOUR : EDITOR_TOUR} onDone={() => setTour(null)} />}
       {!termsOk && (
         <TermsGate

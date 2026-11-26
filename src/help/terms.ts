@@ -1,7 +1,7 @@
 // Terms of Use shown on first run and in Help. Plain-language draft for a personal open-source project.
 // Change TERMS_VERSION whenever the text changes, and everyone is asked to accept again.
 export const TERMS_VERSION = '2026-11b';
-export const AUTHOR = 'Bingusxz';
+export const AUTHOR = 'Dean';
 export const PROJECT_URL = 'https://github.com/bingusxz/PweDeF';
 
 export interface TermsSection {

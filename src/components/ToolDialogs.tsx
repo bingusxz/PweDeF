@@ -12,10 +12,13 @@ import type { PptMode } from '../lib/toPowerPoint';
 import { OPTIMIZE_PRESETS, type OptimizeOptions, type OptimizePreset } from '../lib/optimize';
 import { loadPdf, renderToCanvas } from '../lib/pdf';
 import { IMAGE_FILTERS } from '../lib/convert';
+import { ProtectDialog } from './MoreDialogs';
+import { CropDialog, HeaderFooterDialog, PdfaDialog, SheetsDialog, type CropRequest, type HeaderFooterRequest, type SheetsRequest } from './LayoutDialogs';
+import type { Protection } from '../lib/pdfCrypt';
 
 /** What the Split dialog asks for. Bookmarks are resolved by the editor, which has the open document. */
 export type SplitRequest = SplitSpec & { bookmarks?: boolean };
-export type ToolKind = 'watermark' | 'numbers' | 'split' | 'properties' | 'ocr' | 'exportImages' | 'toWord' | 'toPpt' | 'optimize' | 'certSign' | 'sigCheck' | 'compare';
+export type ToolKind = 'watermark' | 'numbers' | 'split' | 'properties' | 'ocr' | 'exportImages' | 'toWord' | 'toPpt' | 'optimize' | 'certSign' | 'sigCheck' | 'compare' | 'protect' | 'crop' | 'sheets' | 'headers' | 'pdfa';
 
 export interface ToolHandlers {
   watermark(o: WatermarkOpts): void;
@@ -28,6 +31,11 @@ export interface ToolHandlers {
   toPpt(mode: PptMode): void;
   certSign(o: CertSignRequest): void;
   optimize(o: OptimizeOptions): void;
+  protect(p: Protection | null): void;
+  pdfa(): void;
+  crop(r: CropRequest): void;
+  sheets(r: SheetsRequest): void;
+  headers(r: HeaderFooterRequest): void;
 }
 
 export function ToolDialog({
@@ -36,7 +44,11 @@ export function ToolDialog({
   numPages,
   onClose,
   h,
+  protection,
+  currentPage = 0,
 }: {
+  currentPage?: number;
+  protection?: Protection | null;
   kind: ToolKind;
   bytes: Uint8Array;
   numPages: number;
@@ -66,6 +78,16 @@ export function ToolDialog({
       return <SigCheckDialog onClose={onClose} bytes={bytes} />;
     case 'compare':
       return <CompareDialog onClose={onClose} initialA={{ name: 'This document', data: bytes }} />;
+    case 'pdfa':
+      return <PdfaDialog onClose={onClose} onRun={h.pdfa} />;
+    case 'crop':
+      return <CropDialog numPages={numPages} currentPage={currentPage} onClose={onClose} onRun={h.crop} />;
+    case 'sheets':
+      return <SheetsDialog numPages={numPages} onClose={onClose} onRun={h.sheets} />;
+    case 'headers':
+      return <HeaderFooterDialog onClose={onClose} onRun={h.headers} />;
+    case 'protect':
+      return <ProtectDialog current={protection} onClose={onClose} onRun={h.protect} />;
     case 'optimize':
       return <OptimizeDialog onClose={onClose} onRun={h.optimize} size={bytes.length} />;
   }

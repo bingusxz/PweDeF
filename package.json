@@ -1,9 +1,9 @@
 {
   "name": "pwedef",
   "productName": "PweDeF",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "PweDeF — a fast, free, open-source PDF editor (view, annotate, edit, sign, forms, page tools, OCR, batch).",
-  "author": "Bingusxz",
+  "author": "Dean",
   "license": "UNLICENSED",
   "private": true,
   "main": "electron/main.cjs",

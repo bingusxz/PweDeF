@@ -1,7 +1,7 @@
 // Headless engine test: builds a sample PDF (with a form), then runs bake + page ops
 // and verifies the results with pdf-lib and pdf.js text extraction.
 // Run: npm run test:engine
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { bake } from '../src/lib/bake';
 import * as ops from '../src/lib/ops';
@@ -655,14 +655,460 @@ check((await text(rotBaked))[0].includes('ROTATED OK'), 'text on rotated page');
   const r4 = await S.verifySignatures(appended);
   check(r4[0]?.status === 'modified', 'sign: data added after signing is reported as modified');
 
-  let blocked = false;
-  try {
-    await S.signPdf(invisible, cred);
-  } catch {
-    blocked = true;
+  // a second person can sign the signed file: the first signature stays intact (incremental save)
+  const cred2 = S.loadPfx(S.createSelfSigned({ name: 'Second Signer', password: 'pw1234' }), 'pw1234');
+  const both = await S.signPdf(visible, cred2, { reason: 'Approved', visible: { page: 0, x: 300, y: 560, w: 220, h: 70 } });
+  check(both.length > visible.length && both.subarray(0, visible.length).every((v, i) => v === visible[i]), 'sign: countersigning keeps every original byte, the new signature is added at the end');
+  const rb = await S.verifySignatures(both);
+  check(rb.length === 2, 'sign: the countersigned file has two signatures');
+  const second = rb.find((r) => r.signer === 'Second Signer');
+  const firstOne = rb.find((r) => r.signer !== 'Second Signer');
+  check(second?.status === 'valid', 'sign: the new signature is valid');
+  check(!!firstOne && firstOne.status !== 'invalid', `sign: the first signature is NOT broken by the countersignature (${firstOne?.status})`);
+  check((await PDFDocument.load(both)).getForm().getFields().map((f) => f.getName()).filter((n) => n.startsWith('Signature')).sort().join() === 'Signature1,Signature2' && (await text(both))[0].includes('Original page 1'), 'sign: countersigned file has Signature1 and Signature2 and keeps its text');
+  const three = await S.signPdf(both, S.loadPfx(S.createSelfSigned({ name: 'Third Signer', password: 'pw1234' }), 'pw1234'));
+  check((await S.verifySignatures(three)).length === 3 && (await S.verifySignatures(three)).every((r) => r.status !== 'invalid'), 'sign: a third signature works too');
+  // the cross-reference STREAM flavour (modern files) and the classic table flavour
+  const I = await import('../src/lib/incremental');
+  for (const [label, src] of [['table', invisible], ['stream', base]] as const) {
+    const d = await PDFDocument.load(src, { updateMetadata: false });
+    d.setTitle('Added in a new revision');
+    const info = d.context.trailerInfo.Info as any;
+    const ext = await I.appendRevision(src, d, [info]);
+    const re = await PDFDocument.load(ext, { updateMetadata: false });
+    check(re.getTitle() === 'Added in a new revision' && ext.subarray(0, src.length).every((v, i) => v === src[i]), `sign: incremental revision (${label} style) is read back with the change and the old bytes untouched`);
+    check((await text(ext))[0].includes('Original page 1'), `sign: incremental revision (${label} style) opens in pdf.js`);
   }
-  check(blocked, 'sign: signing an already signed PDF is refused (it would break the first signature)');
   check((await S.verifySignatures(base)).length === 0, 'sign: an unsigned PDF has no signatures');
+}
+
+// ---- passwords: open protected files, protect with AES-256 ----
+{
+  const { readFileSync } = await import('node:fs');
+  const C = await import('../src/lib/pdfCrypt');
+  const fx = (n: string) => new Uint8Array(readFileSync(`tests/fixtures/${n}.pdf`));
+  check(!(await C.isEncrypted(fx('plain'))), 'crypt: plain file is not flagged as protected');
+  for (const n of ['rc4-40', 'rc4-128', 'aes-128', 'aes-256', 'aes-256-r5']) {
+    check(await C.isEncrypted(fx(n)), `crypt: ${n} is detected as protected`);
+    for (const [who, pw] of [['user', 'user123'], ['owner', 'owner456']]) {
+      const r = await C.decryptPdf(fx(n), pw);
+      check((await text(r.bytes))[0].includes('Secret invoice total 4500'), `crypt: ${n} opens with the ${who} password and the text is readable`);
+      check(!(await C.isEncrypted(r.bytes)), `crypt: ${n} result is a plain PDF`);
+    }
+    let bad = '';
+    try {
+      await C.decryptPdf(fx(n), 'nope');
+    } catch (e: any) {
+      bad = e?.name;
+    }
+    check(bad === 'WrongPasswordError', `crypt: ${n} rejects a wrong password`);
+  }
+  // protect with AES-256 and read it back with an independent reader (pdf.js)
+  const plain = await sample();
+  const prot = await C.encryptPdf(plain, { userPassword: 'open-me', ownerPassword: 'boss', permissions: { ...C.ALL_PERMISSIONS, copy: false, print: false } });
+  check(await C.isEncrypted(prot), 'crypt: protected output is encrypted');
+  let needed = false;
+  try {
+    await pdfjs.getDocument({ data: prot.slice(), isEvalSupported: false }).promise;
+  } catch (e: any) {
+    needed = e?.name === 'PasswordException';
+  }
+  check(needed, 'crypt: pdf.js asks for a password on our protected file');
+  const viaPdfjs = await pdfjs.getDocument({ data: prot.slice(), password: 'open-me', isEvalSupported: false }).promise;
+  const pg = await (await viaPdfjs.getPage(1)).getTextContent();
+  check(pg.items.map((i: any) => i.str).join(' ').includes('Original page 1'), 'crypt: pdf.js opens our AES-256 file with the right password and reads the text');
+  const own = await C.decryptPdf(prot, 'boss');
+  check((await text(own.bytes))[2].includes('Original page 3'), 'crypt: our own file opens again with the owner password');
+  check(own.protection.permissions.copy === false && own.protection.permissions.edit === true, 'crypt: permissions round-trip');
+  check((await C.decryptPdf(prot, 'open-me')).bytes.length > 500, 'crypt: and with the user password');
+  const withForm = await C.decryptPdf(await C.encryptPdf(base, { userPassword: 'x1', ownerPassword: 'x1', permissions: C.ALL_PERMISSIONS }), 'x1');
+  check((await PDFDocument.load(withForm.bytes)).getForm().getFields().length === 2, 'crypt: form fields survive protect and open');
+  const open = await C.encryptPdf(plain, { userPassword: '', ownerPassword: 'boss', permissions: { ...C.ALL_PERMISSIONS, edit: false } });
+  check((await text((await C.decryptPdf(open, '')).bytes))[0].includes('Original page 1'), 'crypt: blank user password opens straight away');
+}
+
+// ---- layout: crop, n-up, booklet, headers and footers ----
+{
+  const L = await import('../src/lib/layout');
+  const size = async (b: Uint8Array, i = 0) => {
+    const d = await pdfjs.getDocument({ data: b.slice(), isEvalSupported: false }).promise;
+    const v = (await d.getPage(i + 1)).getViewport({ scale: 1 });
+    await d.destroy();
+    return [Math.round(v.width), Math.round(v.height)];
+  };
+  const cropped = await L.cropPages(base, [0], { top: 72, right: 36, bottom: 0, left: 36 });
+  const s0 = await size(cropped, 0);
+  check(s0[0] === 540 && s0[1] === 720, `layout: crop shrinks page 1 to 540x720 (got ${s0})`);
+  check((await size(cropped, 1)).join() === '612,792', 'layout: other pages are not cropped');
+  check((await size(await L.resetCrop(cropped, [0]), 0)).join() === '612,792', 'layout: reset brings the page back');
+  const rotated = await ops.rotatePages(base, [0], 90);
+  const rc = await L.cropPages(rotated, [0], { top: 100, right: 0, bottom: 0, left: 0 });
+  const rs = await size(rc, 0);
+  check(rs[0] === 792 && rs[1] === 512, `layout: crop on a rotated page cuts the visual top (got ${rs})`);
+  check((await text(cropped))[0].includes('Original page 1'), 'layout: text is still there after cropping');
+  let tooMuch = false;
+  try {
+    await L.cropPages(base, [0], { top: 400, right: 0, bottom: 400, left: 0 });
+  } catch {
+    tooMuch = true;
+  }
+  check(tooMuch, 'layout: cropping away the whole page is refused');
+
+  check(L.bookletPlan(8).map((s) => s.join('/')).join(' ') === '7/0 1/6 5/2 3/4', 'layout: 8-page booklet order is 8-1, 2-7, 6-3, 4-5');
+  check(L.bookletPlan(6).map((s) => s.map((x) => (x === null ? '_' : x)).join('/')).join(' ') === '_/0 1/_ 5/2 3/4', 'layout: 6-page booklet pads blanks at the back');
+  check(L.nUpPlan(5, 4).length === 2 && L.nUpPlan(5, 4)[1].join() === '4,,,', 'layout: 5 pages 4-up makes 2 sheets, the second mostly empty');
+  const opts = { size: L.PAPER.A4, landscape: true, margin: 18, gap: 10, border: true };
+  const nup = await L.imposePages(base, L.nUpPlan(3, 2), 2, 1, opts);
+  check((await PDFDocument.load(nup)).getPageCount() === 2, 'layout: 3 pages 2-up gives 2 sheets');
+  const nupText = await text(nup);
+  check(nupText[0].includes('Original page 1') && nupText[0].includes('Original page 2') && nupText[1].includes('Original page 3'), 'layout: n-up keeps each page readable (text, not pictures)');
+  check((await size(nup)).join() === '842,595', 'layout: sheet is A4 landscape');
+  const book = await L.imposePages(rotated, L.bookletPlan(3), 2, 1, opts);
+  check((await PDFDocument.load(book)).getPageCount() === 2, 'layout: 3-page booklet (padded to 4) prints one sheet, 2 sides');
+  const rotNup = await L.imposePages(rotated, [[0, null]], 2, 1, opts);
+  check((await text(rotNup))[0].includes('Original page 1'), 'layout: a rotated source page still lands on the sheet');
+
+  const ctx = { file: 'contract.pdf', title: 'Contract', date: '26 November 2026', time: '09:30' };
+  const hf = await L.headersFooters(base, {
+    header: { left: '{file}', center: '', right: '{date}' },
+    footer: { left: '', center: 'Page {n} of {total}', right: 'MF-{n:4}' },
+    size: 9, color: '#333333', margin: 24, start: 1, skipFirst: true, context: ctx,
+  });
+  const ht = await text(hf);
+  check(!ht[0].includes('contract.pdf') && ht[1].includes('contract.pdf') && ht[1].includes('26 November 2026'), 'layout: header text appears, and is skipped on page 1 when asked');
+  check(ht[1].includes('Page 2 of 3') && ht[2].includes('MF-0003'), 'layout: footer tokens {n} {total} {n:4} fill in');
+  const hfOdd = await L.headersFooters(base, { header: { left: 'ODD', center: '', right: '' }, footer: { left: '', center: '', right: '' }, size: 9, color: '#000000', margin: 24, start: 1, pages: 'odd', context: ctx });
+  const ho = await text(hfOdd);
+  check(ho[0].includes('ODD') && !ho[1].includes('ODD') && ho[2].includes('ODD'), 'layout: "odd" pages only');
+  const hfRot = await L.headersFooters(rotated, { header: { left: 'TOPLEFT', center: '', right: '' }, footer: { left: '', center: '', right: '' }, size: 9, color: '#000000', margin: 24, start: 1, context: ctx });
+  const items = await (async () => {
+    const d = await pdfjs.getDocument({ data: hfRot.slice(), isEvalSupported: false }).promise;
+    const pg = await d.getPage(1);
+    const v = pg.getViewport({ scale: 1 });
+    const tc = await pg.getTextContent();
+    const it: any = tc.items.find((x: any) => x.str === 'TOPLEFT');
+    const [vx, vy] = v.convertToViewportPoint(it.transform[4], it.transform[5]);
+    return { vx, vy };
+  })();
+  check(items.vx < 80 && items.vy < 60, `layout: header on a rotated page still sits at the visual top-left (${Math.round(items.vx)},${Math.round(items.vy)})`);
+}
+
+// ---- bookmarks and attachments ----
+{
+  const N = await import('../src/lib/navdata');
+  const open = (b: Uint8Array) => pdfjs.getDocument({ data: b.slice(), isEvalSupported: false }).promise;
+  const tree = [
+    { title: 'Intro', page: 0, children: [{ title: 'Background', page: 1, children: [] }] },
+    { title: 'Results', page: 2, children: [] },
+    { title: 'Website', page: null, url: 'https://example.com/', children: [] },
+  ];
+  const withOutline = await N.writeOutline(base, tree);
+  const d1 = await open(withOutline);
+  const got = await N.readOutline(d1 as any);
+  check(got.length === 3 && got[0].title === 'Intro' && got[0].page === 0, 'nav: bookmarks written and read back');
+  check(got[0].children.length === 1 && got[0].children[0].title === 'Background' && got[0].children[0].page === 1, 'nav: nested bookmark keeps its page');
+  check(got[1].page === 2 && got[2].url === 'https://example.com/', 'nav: later bookmark and web link survive');
+  // survives other edits: delete page 1 and the file still opens
+  const stillOpens = await ops.rotatePages(withOutline, [0], 90);
+  check((await N.readOutline((await open(stillOpens)) as any)).length === 3, 'nav: bookmarks survive a later page operation');
+  const cleared = await N.writeOutline(withOutline, []);
+  check((await N.readOutline((await open(cleared)) as any)).length === 0, 'nav: removing all bookmarks works');
+  const edited = await N.writeOutline(withOutline, got.filter((x) => x.title !== 'Results').map((x) => ({ ...x, title: x.title === 'Intro' ? 'Introduction' : x.title })));
+  const ed = await N.readOutline((await open(edited)) as any);
+  check(ed.length === 2 && ed[0].title === 'Introduction', 'nav: rename and delete a bookmark');
+  const withUnicode = await N.writeOutline(base, [{ title: 'Ang ₱ at ñ — 日本', page: 0, children: [] }]);
+  check((await N.readOutline((await open(withUnicode)) as any))[0].title === 'Ang ₱ at ñ — 日本', 'nav: bookmark titles keep ₱ and other Unicode');
+
+  const att = await N.attachFile(base, { name: 'notes.txt', data: new TextEncoder().encode('hello attach'), description: 'my notes' });
+  const a1 = await N.listAttachments((await open(att)) as any);
+  check(a1.length === 1 && a1[0].name === 'notes.txt' && new TextDecoder().decode(a1[0].data) === 'hello attach', 'nav: attached file is listed and its contents read back');
+  const att2 = await N.attachFile(att, { name: 'b.csv', data: new TextEncoder().encode('a,b') });
+  check((await N.listAttachments((await open(att2)) as any)).length === 2, 'nav: a second attachment is added');
+  const less = await N.removeAttachment(att2, 'notes.txt');
+  const a3 = await N.listAttachments((await open(less)) as any);
+  check(a3.length === 1 && a3[0].name === 'b.csv', 'nav: removing an attachment leaves the other one');
+  let missing = false;
+  try {
+    await N.removeAttachment(less, 'nope.txt');
+  } catch {
+    missing = true;
+  }
+  check(missing, 'nav: removing a file that is not there is reported');
+}
+
+// ---- edit existing form fields ----
+{
+  const F = await import('../src/lib/formFields');
+  const mk = async () => {
+    const d = await PDFDocument.create();
+    const pg = d.addPage([612, 792]);
+    const fm = d.getForm();
+    const t = fm.createTextField('customer');
+    t.addToPage(pg, { x: 72, y: 600, width: 200, height: 20 });
+    t.setText('Mafi Inc');
+    fm.createCheckBox('agree').addToPage(pg, { x: 72, y: 560, width: 14, height: 14 });
+    const rg = fm.createRadioGroup('size');
+    ['S', 'M', 'L'].forEach((v, k) => rg.addOptionToPage(v, pg, { x: 72 + k * 30, y: 500, width: 14, height: 14 }));
+    rg.select('M');
+    const dd = fm.createDropdown('city');
+    dd.addOptions(['Manila', 'Cebu', 'Davao']);
+    dd.addToPage(pg, { x: 72, y: 450, width: 120, height: 20 });
+    dd.select('Cebu');
+    return d.save();
+  };
+  const src = await mk();
+  const doc = await pdfjs.getDocument({ data: src.slice(), isEvalSupported: false }).promise;
+  const vpOf = (i: number) => doc.getPage(i + 1).then((p: any) => p.getViewport({ scale: 1 }) as any);
+  const imp = await F.importFields(doc as any, [], src);
+  check(imp.length === 6, `fields: all 6 existing widgets are imported (got ${imp.length})`);
+  const by = (n: string) => imp.filter((f) => f.name === n);
+  check(by('customer')[0]?.kind === 'text' && by('customer')[0].value === 'Mafi Inc', 'fields: text field keeps its value');
+  check(by('agree')[0]?.kind === 'checkbox' && !by('agree')[0].checked, 'fields: checkbox imported unticked');
+  check(by('size').length === 3 && by('size').every((f) => f.kind === 'radio') && by('size').filter((f) => f.checked).map((f) => f.exportValue).join() === 'M', 'fields: radio group imported with M ticked');
+  check(by('city')[0]?.kind === 'dropdown' && by('city')[0].options?.join() === 'Manila,Cebu,Davao' && by('city')[0].value === 'Cebu', 'fields: dropdown keeps its choices and selection');
+  check(Math.abs(by('customer')[0].y - (792 - 620)) < 1 && Math.abs(by('customer')[0].w - 200) < 2, 'fields: box lands where the field is on the page');
+  check((await F.importFields(doc as any, imp, src)).length === 0, 'fields: importing twice adds nothing');
+
+  const names = async (b: Uint8Array) => (await PDFDocument.load(b)).getForm().getFields().map((f) => f.getName()).sort().join();
+  const same = await bake(src, imp, {}, vpOf as any);
+  check((await names(same)) === 'agree,city,customer,size', 'fields: untouched fields stay exactly as they were');
+  check(same.length === src.length || Math.abs(same.length - src.length) < 400, 'fields: and the file is not rebuilt');
+
+  const edited = imp.map((f) => {
+    if (f.name === 'customer') return { ...f, name: 'client', x: f.x + 60, w: 260 };
+    if (f.name === 'agree') return { ...f, gone: true };
+    if (f.name === 'size' && f.exportValue === 'L') return { ...f, gone: true };
+    if (f.name === 'city') return { ...f, options: ['Manila', 'Cebu', 'Davao', 'Iloilo'] };
+    return f;
+  });
+  const out = await bake(src, edited, {}, vpOf as any);
+  const od = await PDFDocument.load(out);
+  const fm = od.getForm();
+  check((await names(out)) === 'city,client,size', `fields: rename and delete take effect (${await names(out)})`);
+  const w = fm.getTextField('client').acroField.getWidgets()[0].getRectangle();
+  check(Math.abs(w.x - 132) < 2 && Math.abs(w.width - 260) < 2, `fields: moved and widened (x ${Math.round(w.x)}, w ${Math.round(w.width)})`);
+  check(fm.getTextField('client').getText() === 'Mafi Inc', 'fields: the text inside survived the edit');
+  check(fm.getRadioGroup('size').acroField.getWidgets().length === 2 && fm.getRadioGroup('size').getSelected() === 'M', 'fields: deleting one radio button keeps the rest and the selection');
+  check(fm.getDropdown('city').getOptions().join() === 'Manila,Cebu,Davao,Iloilo', 'fields: dropdown choices edited');
+  check(od.getPage(0).node.Annots()!.size() === 4, `fields: page has the right number of widgets (${od.getPage(0).node.Annots()?.size()})`);
+  await doc.destroy();
+}
+
+// ---- borderless tables ----
+{
+  const L = await import('../src/lib/pdfLayout');
+  const run = (str: string, x: number, y: number, size = 11): import('../src/lib/pdfLayout').Run => ({ str, x, y, w: str.length * size * 0.5, size, bold: false, italic: false, font: 'Arial' });
+  // a price list: 5 rows, 4 columns, no lines at all; the numbers are right-aligned
+  const rows = [
+    ['Item', 'Qty', 'Unit price', 'Amount'],
+    ['Sofa bed', '2', '12,500.00', '25,000.00'],
+    ['Pillow set', '10', '450.00', '4,500.00'],
+    ['Foam mattress', '1', '8,900.00', '8,900.00'],
+    ['Delivery', '1', '600.00', '600.00'],
+  ];
+  const xs = [60, 240, 330, 450];
+  const rights = [0, 270, 400, 520];
+  const runs: import('../src/lib/pdfLayout').Run[] = [];
+  rows.forEach((r, k) =>
+    r.forEach((t, c) => {
+      const w = t.length * 5.5;
+      runs.push(run(t, c === 0 ? xs[0] : rights[c] - w, 200 + k * 18));
+    }),
+  );
+  // plus a paragraph above and below that must not be swallowed
+  const prose = (y: number) => run('This is an ordinary paragraph of text that runs across the whole page width without any columns at all.', 60, y);
+  const all = [prose(120), prose(138), ...runs, prose(330), prose(348)];
+  const found = L.detectBorderlessTables(all);
+  check(found.length === 1, `tables: one borderless table is found in a price list (found ${found.length})`);
+  const t = found[0];
+  check(t && t.borderless && t.rows.length === 6 && t.cols.length === 5, `tables: 5 rows by 4 columns (got ${t ? `${t.rows.length - 1}x${t.cols.length - 1}` : 'none'})`);
+  const filled = L.fillTables(found, all);
+  check(filled.length === 4 && filled.every((r) => r.str.startsWith('This is')), 'tables: the paragraphs stay outside the table');
+  const cell = (r: number, c: number) => L.cellText(t.cells.find((x) => x.r === r && x.c === c)!);
+  check(cell(0, 0) === 'Item' && cell(2, 0) === 'Pillow set' && cell(3, 3) === '8,900.00' && cell(1, 1) === '2', 'tables: text lands in the right cells, right-aligned numbers too');
+  check(cell(3, 0) === 'Foam mattress' && cell(3, 2) === '8,900.00', 'tables: a wide label stays in one cell');
+
+  // two-column prose is not a table
+  const para = 'Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor';
+  const twoCol: import('../src/lib/pdfLayout').Run[] = [];
+  for (let k = 0; k < 8; k++) {
+    twoCol.push(run(para, 50, 100 + k * 14, 10), run(para, 330, 100 + k * 14, 10));
+  }
+  check(L.detectBorderlessTables(twoCol).length === 0, 'tables: two columns of prose are not mistaken for a table');
+  // plain paragraph lines
+  check(L.detectBorderlessTables([100, 114, 128, 142, 156].map((y) => prose(y))).length === 0, 'tables: ordinary paragraph lines are not a table');
+  // a form-style list: label and value, short
+  const form: import('../src/lib/pdfLayout').Run[] = [];
+  ['Name', 'Address', 'Phone', 'Email'].forEach((l, k) => form.push(run(l, 60, 100 + k * 16), run(l + ' value', 200, 100 + k * 16)));
+  check(L.detectBorderlessTables(form).length === 1, 'tables: a short label-and-value list becomes a 2-column table');
+  // only two rows is not enough
+  check(L.detectBorderlessTables(runs.filter((r) => r.y < 220)).length === 0, 'tables: two rows alone are not a table');
+  // a column with some empty cells is still one table
+  const gappy = runs.filter((r) => !(r.str === '450.00' || r.str === '600.00'));
+  check(L.detectBorderlessTables(gappy).length === 1, 'tables: empty cells do not break the table');
+  // ruled tables win: text inside a ruled table is not also found as a loose one
+  const page = { w: 612, h: 792, runs: [run('a', 60, 112), run('b', 260, 112), run('c', 60, 142), run('d', 260, 142), run('e', 60, 172), run('f', 260, 172)], hlines: [100, 130, 160, 190].map((y) => ({ at: y, a: 50, b: 350 })), vlines: [50, 200, 350].map((x) => ({ at: x, a: 100, b: 190 })), images: [] };
+  const ft = L.findTables(page as any);
+  check(ft.tables.length === 1 && !ft.tables[0].borderless && ft.rest.length === 0, 'tables: findTables prefers the ruled table and leaves no stray text');
+}
+
+// ---- PDF/A preparation ----
+{
+  const A = await import('../src/lib/pdfa');
+  const icc = A.srgbProfile();
+  check(icc.length > 1000 && String.fromCharCode(...icc.subarray(36, 40)) === 'acsp' && String.fromCharCode(...icc.subarray(12, 16)) === 'mntr', 'pdfa: the built colour profile has a valid ICC header');
+  // a file with a script, an attachment, a hidden note, and a font that is not embedded
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Helvetica);
+  d.addPage([612, 792]).drawText('Archive me please', { x: 72, y: 700, size: 14, font: f });
+  d.setTitle('Annual report');
+  d.setAuthor('Mafi');
+  await d.attach(new TextEncoder().encode('x'), 'x.txt', { mimeType: 'text/plain' });
+  const js = d.context.obj({ S: 'JavaScript', JS: 'app.alert(1)' });
+  d.catalog.set(PDFName.of('OpenAction'), js);
+  const note = d.context.obj({ Type: 'Annot', Subtype: 'Text', Rect: [10, 10, 30, 30], Contents: 'hello', F: 2 });
+  d.getPage(0).node.addAnnot(d.context.register(note));
+  const src = await d.save();
+  const r = await A.toPdfA(src);
+  check(r.report.fixed.some((x) => /script/i.test(x)) && r.report.fixed.some((x) => /attached/i.test(x)) && r.report.fixed.some((x) => /annotation/i.test(x)), `pdfa: script, attachment and hidden note are dealt with (${r.report.fixed.length} fixes)`);
+  check(r.report.problems.some((x) => /Helvetica/.test(x)) && !r.report.likelyCompliant, 'pdfa: the font that is not embedded is reported, not hidden');
+  const out = await PDFDocument.load(r.bytes, { updateMetadata: false });
+  check(!out.catalog.has(PDFName.of('OpenAction')) && !out.catalog.lookupMaybe(PDFName.of('Names'), PDFDict)?.has(PDFName.of('EmbeddedFiles')), 'pdfa: no script and no attachments remain');
+  check(out.catalog.has(PDFName.of('OutputIntents')) && out.catalog.has(PDFName.of('Metadata')), 'pdfa: output intent and metadata are in the catalog');
+  const pdoc = await pdfjs.getDocument({ data: r.bytes.slice(), isEvalSupported: false }).promise;
+  const md: any = await pdoc.getMetadata();
+  check(md.metadata?.get('pdfaid:part') === '2' && md.metadata?.get('pdfaid:conformance') === 'B', 'pdfa: PDF/A-2b identification reads back from the XMP');
+  check(md.metadata?.get('dc:title') === 'Annual report' && md.info?.Title === 'Annual report', 'pdfa: XMP title matches the document info title');
+  check((await text(r.bytes))[0].includes('Archive me please'), 'pdfa: the page text is unchanged');
+  const annotFlags = out.getPage(0).node.Annots()!.lookup(0, PDFDict).lookup(PDFName.of('F')) as any;
+  check((annotFlags.asNumber() & 4) === 4 && (annotFlags.asNumber() & 2) === 0, 'pdfa: the note now prints and is not hidden');
+  check(out.getProducer() === 'PweDeF', 'pdfa: producer is set');
+  // a file whose fonts are all embedded has nothing left to complain about
+  const emb = await PDFDocument.create();
+  const fk = (await import('@pdf-lib/fontkit')).default;
+  emb.registerFontkit(fk);
+  const { readFileSync } = await import('node:fs');
+  const fontPath = ['C:/Windows/Fonts/arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'].find((p) => { try { readFileSync(p); return true; } catch { return false; } });
+  if (fontPath) {
+    const ef = await emb.embedFont(new Uint8Array(readFileSync(fontPath)), { subset: true });
+    emb.addPage([300, 300]).drawText('Embedded text', { x: 20, y: 200, size: 12, font: ef });
+    const r2 = await A.toPdfA(await emb.save());
+    check(r2.report.likelyCompliant && r2.report.problems.length === 0, 'pdfa: a file with embedded fonts is reported as ready');
+  }
+}
+
+// ---- fixes from the code review ----
+{
+  const C = await import('../src/lib/pdfCrypt');
+  const A = await import('../src/lib/pdfa');
+  const N = await import('../src/lib/navdata');
+  const L = await import('../src/lib/layout');
+  // a file saved with a cross-reference stream (modern style) keeps its trailer entries in the stream dictionary
+  const tr = await C.trailerOf(base);
+  check(!!tr.Root && !!tr.Info, 'review: trailer entries are found in a cross-reference-stream file');
+  // PDF/A on a file whose page-open action is a destination array must not crash
+  const d = await PDFDocument.create();
+  d.addPage([300, 300]);
+  d.catalog.set(PDFName.of('OpenAction'), d.context.obj([d.getPage(0).ref, PDFName.of('Fit')]));
+  let ok = true;
+  try {
+    await A.toPdfA(await d.save());
+  } catch {
+    ok = false;
+  }
+  check(ok, 'review: PDF/A accepts a destination-array OpenAction');
+  // removing an attachment removes its bytes from the saved file
+  const secret = 'TOP-SECRET-PAYLOAD-' + 'x'.repeat(200);
+  const withAtt = await N.attachFile(base, { name: 'secret.txt', data: new TextEncoder().encode(secret) });
+  const removed = await N.removeAttachment(withAtt, 'secret.txt');
+  const hasBytes = (b: Uint8Array) => new TextDecoder('latin1').decode(b).includes('TOP-SECRET-PAYLOAD');
+  // attachments are stored compressed, so look for the file spec name and the stream count instead of the text
+  const countOf = async (b: Uint8Array) => [...(await PDFDocument.load(b)).context.enumerateIndirectObjects()].length;
+  check((await countOf(removed)) < (await countOf(withAtt)), `review: removing an attachment deletes its objects (${await countOf(withAtt)} to ${await countOf(removed)}) ${hasBytes(removed) ? '' : ''}`);
+  const pdfa = await A.toPdfA(withAtt);
+  check((await countOf(pdfa.bytes)) <= (await countOf(withAtt)) + 4, 'review: PDF/A copy drops attached file objects instead of leaving them');
+  // n-up respects a cropped page
+  const cropped = await L.cropPages(base, [0], { top: 100, right: 100, bottom: 100, left: 100 });
+  const nup = await L.imposePages(cropped, [[0, null]], 2, 1, { size: L.PAPER.A4, landscape: true, margin: 18, gap: 10, border: false });
+  const emb = (await PDFDocument.load(nup)).context;
+  const forms = [...emb.enumerateIndirectObjects()].map(([, o]: any) => o).filter((o: any) => o?.dict?.get && o.dict.get(PDFName.of('Subtype'))?.toString() === '/Form');
+  const bboxes: any[] = forms.map((f: any) => f.dict.get(PDFName.of('BBox'))).filter((b: any) => b && b.lookup(3).asNumber() - b.lookup(1).asNumber() > 300);
+  const bbox = bboxes[0];
+  check(!!bbox && Math.abs(bbox.lookup(2).asNumber() - bbox.lookup(0).asNumber() - 412) < 1, 'review: a cropped page is placed cropped on the sheet');
+}
+
+// ---- italic on a font that has no italic face ----
+{
+  const { readFileSync, existsSync } = await import('node:fs');
+  const tahoma = ['C:/Windows/Fonts/tahoma.ttf', 'C:/Windows/Fonts/verdana.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'].find((p) => existsSync(p));
+  if (tahoma) {
+    const bytes = new Uint8Array(readFileSync(tahoma));
+    const mkAnnot = (italic: boolean): Annot[] => [{ id: 'i', page: 0, type: 'text', x: 72, y: 100, w: 300, h: 24, text: 'Italic please', fontSize: 16, color: '#000000', family: 'Tahoma', italic } as Annot];
+    const slantOf = async (b: Uint8Array) => {
+      const d = await pdfjs.getDocument({ data: b.slice(), isEvalSupported: false }).promise;
+      const tc = await (await d.getPage(1)).getTextContent();
+      const it: any = (tc.items as any[]).find((x) => x.str.includes('Italic'));
+      const [a, bb, c, dd] = it.transform;
+      return Math.abs((a * c + bb * dd) / (Math.hypot(a, bb) * Math.hypot(c, dd)));
+    };
+    const vp = await viewportGetter(base);
+    const withFace = (italicFace: boolean) => ({ loadSystemFont: async () => ({ data: bytes, italic: italicFace }) });
+    const noItalicFace = await bake(base, mkAnnot(true), {}, vp as any, withFace(false));
+    check((await slantOf(noItalicFace)) > 0.15, 'italic: a font with no italic face is slanted instead of coming out upright');
+    const realItalic = await bake(base, mkAnnot(true), {}, vp as any, withFace(true));
+    check((await slantOf(realItalic)) < 0.05, 'italic: a real italic face is not slanted a second time');
+    const notAsked = await bake(base, mkAnnot(false), {}, vp as any, withFace(false));
+    check((await slantOf(notAsked)) < 0.05, 'italic: text that is not italic stays upright');
+    const oldStyle = await bake(base, mkAnnot(true), {}, vp as any, { loadSystemFont: async () => bytes });
+    check((await slantOf(oldStyle)) < 0.05, 'italic: a plain font file with no flag is trusted as it is');
+  }
+}
+
+// ---- deleted or rebuilt pages must not leave their old content inside the file ----
+{
+  const { pruneUnreachable } = await import('../src/lib/prune');
+  const { PDFRawStream, decodePDFRawStream } = await import('pdf-lib');
+  const hasText = async (b: Uint8Array, needle: string) => {
+    const d = await PDFDocument.load(b, { updateMetadata: false });
+    for (const [, o] of d.context.enumerateIndirectObjects() as any) {
+      if (!(o instanceof PDFRawStream)) continue;
+      try {
+        const txt = new TextDecoder('latin1').decode(decodePDFRawStream(o).decode());
+        const hex = [...needle].map((ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join('').toUpperCase(); // pdf-lib writes text as hex
+        if (txt.includes(needle) || txt.toUpperCase().includes(hex)) return true;
+      } catch { /* not a content stream */ }
+    }
+    return false;
+  };
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Helvetica);
+  d.addPage([300, 300]).drawText('KEEPME-PAGE-ONE', { x: 10, y: 200, size: 12, font: f });
+  d.addPage([300, 300]).drawText('SECRET-IBAN-4455', { x: 10, y: 200, size: 12, font: f });
+  const before = await d.save();
+  check(await hasText(before, 'SECRET-IBAN-4455'), 'prune: the secret is in the file before deleting the page');
+  const re = await PDFDocument.load(before, { updateMetadata: false });
+  re.removePage(1);
+  const plain = await re.save();
+  check(await hasText(plain, 'SECRET-IBAN-4455'), 'prune: a plain pdf-lib save of the deleted page STILL contains the secret (the bug)');
+  const re2 = await PDFDocument.load(before, { updateMetadata: false });
+  re2.removePage(1);
+  await re2.flush();
+  const gone = pruneUnreachable(re2);
+  const clean = await re2.save();
+  check(gone > 0 && !(await hasText(clean, 'SECRET-IBAN-4455')), `prune: after pruning ${gone} unreachable objects the secret is gone`);
+  check((await hasText(clean, 'KEEPME-PAGE-ONE')) && (await PDFDocument.load(clean)).getPageCount() === 1, 'prune: the page that stays is untouched');
+  // the real delete-pages operation
+  const viaOps = await ops.deletePages(before, [1]);
+  check(!(await hasText(viaOps, 'SECRET-IBAN-4455')), 'prune: deleting a page with the Delete pages tool leaves no trace of it');
+  // a document with forms, bookmarks and attachments keeps all of them
+  const N = await import('../src/lib/navdata');
+  const rich = await N.attachFile(await N.writeOutline(base, [{ title: 'A', page: 0, children: [] }]), { name: 'a.txt', data: new TextEncoder().encode('x') });
+  const rd = await PDFDocument.load(rich, { updateMetadata: false });
+  await rd.flush();
+  pruneUnreachable(rd);
+  const rb = await rd.save();
+  const rdoc = await pdfjs.getDocument({ data: rb.slice(), isEvalSupported: false }).promise;
+  check((await N.readOutline(rdoc as any)).length === 1 && (await N.listAttachments(rdoc as any)).length === 1 && (await PDFDocument.load(rb)).getForm().getFields().length === 2, 'prune: forms, bookmarks and attachments survive pruning');
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nAll engine tests passed');

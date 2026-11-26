@@ -46,6 +46,8 @@ export interface Cell {
 }
 
 export interface Table {
+  /** found from how the text lines up, with no ruling lines drawn around it */
+  borderless?: boolean;
   box: Box;
   rows: number[]; // y edges, top to bottom
   cols: number[]; // x edges, left to right
@@ -295,6 +297,128 @@ export function detectTables(hlines: Seg[], vlines: Seg[]): Table[] {
     tables.push({ box: { x: cols[0], y: rows[0], w: cols[cols.length - 1] - cols[0], h: rows[rows.length - 1] - rows[0] }, rows, cols, cells });
   }
   return tables.sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x);
+}
+
+/**
+ * Tables with no ruling lines: rows of text whose pieces line up in columns (price lists, schedules, statements).
+ * Looks for runs of at least three lines that each break into 2+ pieces, then finds the columns from the empty
+ * vertical strips between the pieces. Two-column prose and ordinary paragraphs are rejected.
+ */
+export function detectBorderlessTables(runs: Run[]): Table[] {
+  type Piece = { x: number; r: number; text: string; runs: Run[] };
+  const lines = groupLines(runs).map((line) => {
+    const size = median(line.map((r) => r.size)) || 10;
+    const pieces: Piece[] = [];
+    for (const r of line) {
+      const last = pieces[pieces.length - 1];
+      const prevEnd = last ? last.r : -Infinity;
+      if (last && r.x - prevEnd <= size * 1.4) {
+        last.r = Math.max(last.r, r.x + r.w);
+        last.runs.push(r);
+        last.text += (r.x - prevEnd > size * 0.15 ? ' ' : '') + r.str;
+      } else pieces.push({ x: r.x, r: r.x + r.w, text: r.str, runs: [r] });
+    }
+    return { line, size, y: line[0].y, pieces };
+  });
+  const out: Table[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].pieces.length < 2) {
+      i++;
+      continue;
+    }
+    // a block: consecutive lines of similar spacing, each with 2+ pieces (a short one-piece line may sit inside)
+    let j = i;
+    const pitch: number[] = [];
+    while (j + 1 < lines.length) {
+      const a = lines[j], b = lines[j + 1];
+      const gap = b.y - a.y;
+      const typical = pitch.length ? median(pitch) : a.size * 1.5;
+      if (gap > Math.max(typical * 1.8, a.size * 3)) break;
+      if (b.pieces.length < 2) {
+        const nxt = lines[j + 2];
+        const short = b.pieces[0].r - b.pieces[0].x < 220 && b.pieces[0].text.length <= 40;
+        if (!(short && nxt && nxt.pieces.length >= 2 && nxt.y - b.y <= Math.max(typical * 1.8, a.size * 3))) break;
+      }
+      pitch.push(gap);
+      j++;
+    }
+    const block = lines.slice(i, j + 1);
+    i = j + 1;
+    const rowsWith2 = block.filter((l) => l.pieces.length >= 2);
+    if (rowsWith2.length < 3) continue;
+
+    // empty vertical strips between pieces = column gaps
+    const lo = Math.floor(Math.min(...rowsWith2.flatMap((l) => l.pieces.map((p) => p.x))));
+    const hi = Math.ceil(Math.max(...rowsWith2.flatMap((l) => l.pieces.map((p) => p.r))));
+    if (hi - lo < 60 || hi - lo > 2000) continue;
+    const cov = new Array(hi - lo + 1).fill(0);
+    for (const l of rowsWith2) for (const p of l.pieces) for (let x = Math.floor(p.x) - lo; x <= Math.ceil(p.r) - lo; x++) cov[x]++;
+    const thr = Math.floor(rowsWith2.length * 0.2);
+    const size = median(block.map((l) => l.size));
+    const cuts: number[] = [];
+    for (let x = 0; x < cov.length; ) {
+      if (cov[x] > thr) {
+        x++;
+        continue;
+      }
+      let y = x;
+      while (y < cov.length && cov[y] <= thr) y++;
+      if (x > 0 && y < cov.length && y - x >= Math.max(5, size * 0.6)) cuts.push(lo + (x + y) / 2);
+      x = y;
+    }
+    const cols = [lo - 2, ...cuts, hi + 2];
+    const ncol = cols.length - 1;
+    if (ncol < 2 || ncol > 14) continue;
+
+    const colOf = (x: number) => {
+      let c = 0;
+      while (c < ncol - 1 && x >= cols[c + 1]) c++;
+      return c;
+    };
+    // every row's pieces must each land in their own column, and the grid must be reasonably full
+    let filled = 0;
+    let textLen = 0;
+    let pieceCount = 0;
+    let clash = 0;
+    for (const l of rowsWith2) {
+      const seen = new Set<number>();
+      for (const p of l.pieces) {
+        const c = colOf(p.x);
+        if (seen.has(c)) clash++;
+        seen.add(c);
+        textLen += p.text.length;
+        pieceCount++;
+      }
+      filled += seen.size;
+    }
+    const fill = filled / (rowsWith2.length * ncol);
+    const avgLen = textLen / pieceCount;
+    if (clash > rowsWith2.length * 0.25) continue;
+    if (fill < (ncol === 2 ? 0.75 : 0.5)) continue;
+    if (avgLen > (ncol === 2 ? 38 : 60)) continue;
+
+    const top = block[0].y - block[0].size;
+    const bottom = block[block.length - 1].y + block[block.length - 1].size * 0.35;
+    const rowEdges = [top];
+    for (let k = 0; k + 1 < block.length; k++) rowEdges.push((block[k].y + block[k].size * 0.35 + block[k + 1].y - block[k + 1].size) / 2);
+    rowEdges.push(bottom);
+    if (rowEdges.some((e, k) => k > 0 && e <= rowEdges[k - 1])) continue;
+    const cells: Cell[] = [];
+    for (let r = 0; r < block.length; r++)
+      for (let c = 0; c < ncol; c++) cells.push({ r, c, rowSpan: 1, colSpan: 1, box: { x: cols[c], y: rowEdges[r], w: cols[c + 1] - cols[c], h: rowEdges[r + 1] - rowEdges[r] }, runs: [] });
+    out.push({ borderless: true, box: { x: cols[0], y: top, w: cols[ncol] - cols[0], h: bottom - top }, rows: rowEdges, cols, cells });
+  }
+  return out;
+}
+
+/** Ruled tables first, then tables found by alignment in whatever text is left. */
+export function findTables(data: PageData): { tables: Table[]; rest: Run[] } {
+  const ruled = detectTables(data.hlines, data.vlines);
+  let rest = fillTables(ruled, data.runs);
+  const loose = detectBorderlessTables(rest);
+  rest = fillTables(loose, rest);
+  return { tables: [...ruled, ...loose].sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x), rest };
 }
 
 /** Puts each text run into the table cell it sits in. Returns the runs that belong to no table. */

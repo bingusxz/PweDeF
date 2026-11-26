@@ -1,6 +1,6 @@
 # PweDeF
 
-**An all-in-one PDF studio for Windows, created by Bingusxz.** You can edit, sign, convert, organize, redact and OCR PDFs. It's free and open source, needs no Adobe account, and updates itself from GitHub.
+**An all-in-one PDF studio for Windows, created by Dean.** You can edit, sign, convert, organize, redact and OCR PDFs. It's free and open source, needs no Adobe account, and updates itself from GitHub.
 
 PweDeF is a clean-room application built on open-source engines (Mozilla **pdf.js** for rendering and **pdf-lib** for writing PDFs). It uses no Adobe code and follows the public PDF standard (ISO 32000).
 

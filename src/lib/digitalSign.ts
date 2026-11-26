@@ -4,6 +4,7 @@
 //   createSelfSigned - makes a personal certificate (Adobe shows these as "identity not verified", which is expected)
 // Limits: RSA keys only. A PDF that is already signed can't be signed again here, because that would break the earlier
 // signature (this app rewrites the file instead of appending to it).
+import { appendRevision, originalSize, touchedRefs } from './incremental';
 import forge from 'node-forge';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString, StandardFonts } from 'pdf-lib';
 import { winAnsiSafe } from './util';
@@ -89,11 +90,22 @@ export function createSelfSigned(o: { name: string; org?: string; email?: string
 const pad10 = (n: number) => String(n).padStart(10, '0');
 const PH = 9999999999;
 
+/** Signature1, Signature2…: each field in a form needs its own name. */
+function freeSigName(doc: PDFDocument) {
+  const used = new Set(doc.getForm().getFields().map((f) => f.getName()));
+  let n = 1;
+  while (used.has('Signature' + n)) n++;
+  return 'Signature' + n;
+}
+
 export async function signPdf(bytes: Uint8Array, cred: Credentials, o: SignOptions = {}): Promise<Uint8Array> {
   if (bytes.length > MAX_BYTES) throw new Error('This PDF is too large to sign here (over 90 MB).');
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   const ctx = doc.context;
-  if (existingSignatureDicts(doc).length) throw new Error('This PDF is already signed. Signing it again would break the earlier signature, so sign a copy that has no signatures.');
+  // an already signed file gets the new signature as a new revision at the end, which leaves the earlier signatures intact
+  const alreadySigned = existingSignatureDicts(doc).length > 0;
+  if (alreadySigned) ctx.largestObjectNumber = Math.max(ctx.largestObjectNumber, originalSize(bytes) - 1);
+  const firstNew = ctx.largestObjectNumber + 1;
 
   const when = o.signedAt || new Date();
   const text = (s: string) => PDFHexString.fromText(s);
@@ -117,7 +129,7 @@ export async function signPdf(bytes: Uint8Array, cred: Credentials, o: SignOptio
   const H = page.getSize().height;
   const r = o.visible ? [o.visible.x, H - o.visible.y - o.visible.h, o.visible.x + o.visible.w, H - o.visible.y] : [0, 0, 0, 0];
   const w = r[2] - r[0], h = r[3] - r[1];
-  const widget: Record<string, any> = { Type: 'Annot', Subtype: 'Widget', FT: 'Sig', Rect: r, V: sigRef, T: PDFString.of('Signature1'), F: 132, P: page.ref };
+  const widget: Record<string, any> = { Type: 'Annot', Subtype: 'Widget', FT: 'Sig', Rect: r, V: sigRef, T: PDFString.of(freeSigName(doc)), F: 132, P: page.ref };
   if (o.visible && w > 4 && h > 4) {
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const esc = (s: string) => winAnsiSafe(s).replace(/([\\()])/g, '\\$1');
@@ -145,8 +157,15 @@ export async function signPdf(bytes: Uint8Array, cred: Credentials, o: SignOptio
   fields.push(widgetRef);
   acro.set(PDFName.of('SigFlags'), PDFNumber.of(3));
 
-  // plain objects only: the signature dictionary must sit at a fixed place in the file
-  const out = await doc.save({ useObjectStreams: false });
+  let out: Uint8Array;
+  if (alreadySigned) {
+    await doc.flush();
+    const added = ctx.enumerateIndirectObjects().map(([r]) => r).filter((r) => r.objectNumber >= firstNew);
+    out = await appendRevision(bytes, doc, [...added, ...touchedRefs(doc, pageIndex)]);
+  } else {
+    // plain objects only: the signature dictionary must sit at a fixed place in the file
+    out = await doc.save({ useObjectStreams: false });
+  }
 
   // find the placeholders and fill in the real byte ranges
   const text8 = new TextDecoder('latin1').decode(out);
@@ -297,7 +316,7 @@ export async function verifySignatures(bytes: Uint8Array): Promise<SigReport[]> 
       const whole = br[2] + br[3] >= bytes.length - 2;
       if (!digestOk) notes.push('The document was changed after it was signed.');
       if (!sigOk) notes.push('The signature itself does not match the certificate.');
-      if (digestOk && sigOk && !whole) notes.push('The signed part is unchanged, but more was added to the file after signing.');
+      if (digestOk && sigOk && !whole) notes.push('The signed part is unchanged, but more was added to the file after signing (for example, another person signed it).');
       if (rep.selfSigned) notes.push("The signer's identity is not confirmed by a trusted authority (self-signed certificate).");
       if (rep.signedAt && (rep.signedAt < cert.validity.notBefore || rep.signedAt > cert.validity.notAfter)) notes.push('The certificate was not valid on the signing date.');
       rep.status = !digestOk || !sigOk ? 'invalid' : whole ? 'valid' : 'modified';

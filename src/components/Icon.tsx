@@ -5,7 +5,7 @@ import {
   Redo2, ZoomIn, ZoomOut, Maximize, Files, Search, MessagesSquare, RotateCcw, RotateCw, Trash2, FileOutput,
   FilePlus2, Copy, Scissors, Combine, LayoutGrid, Layers, X, Check, ChevronLeft, ChevronRight, ChevronDown,
   ClipboardList, ScanText, Info, Droplets, Hash, Download, File, FileArchive, Sparkles, FileText, Sheet,
-  Presentation, Globe, Plus, Sun, Moon, SunMoon, Move, FileType, FileImage, FileSpreadsheet, Lock, ShieldOff, ArrowRightLeft, PanelsTopLeft, CircleHelp, Ellipsis, AlignLeft, AlignCenter, AlignRight, AlignJustify, WrapText, FilePenLine, FormInput, ShieldCheck, FileCheck2, Minimize2, Layers2, Columns2,
+  Presentation, Globe, Plus, Sun, Moon, SunMoon, Move, FileType, FileImage, FileSpreadsheet, Lock, ShieldOff, Bookmark, Paperclip, ArrowRightLeft, PanelsTopLeft, CircleHelp, Ellipsis, AlignLeft, AlignCenter, AlignRight, AlignJustify, WrapText, FilePenLine, FormInput, ShieldCheck, FileCheck2, Minimize2, Layers2, Columns2, Printer,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -22,6 +22,7 @@ function RedactIcon({ size = 18, className, strokeWidth = 1.75 }: { size?: numbe
 const MAP: Record<string, LucideIcon> = {
   open: FolderOpen,
   save: Save,
+  print: Printer,
   select: MousePointer2,
   hand: Hand,
   editText: TextCursorInput,
@@ -91,6 +92,8 @@ const MAP: Record<string, LucideIcon> = {
   txt: FileType,
   jpg: FileImage,
   xls: FileSpreadsheet,
+  bookmark: Bookmark,
+  paperclip: Paperclip,
   lock: Lock,
   unlock: ShieldOff,
   convert: ArrowRightLeft,

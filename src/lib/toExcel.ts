@@ -2,7 +2,7 @@
 // and text outside tables is laid out into columns by where it lines up. One sheet per page.
 import type { PDFDocumentProxy } from './pdf';
 import { extractPage, type PdfJsLib } from './pdfExtract';
-import { cellText, detectTables, fillTables, groupLines, parseCell, type CellValue, type Run, type Table } from './pdfLayout';
+import { cellText, findTables, groupLines, parseCell, type CellValue, type Run, type Table } from './pdfLayout';
 
 type Sheet = import('exceljs').Worksheet;
 
@@ -57,6 +57,7 @@ function tableRows(ws: Sheet, t: Table, startRow: number): number {
     const bold = c.runs.length > 0 && c.runs.every((r) => r.bold);
     put(ws, r0, c0, text, bold);
     if (c.rowSpan > 1 || c.colSpan > 1) ws.mergeCells(r0, c0, r0 + c.rowSpan - 1, c0 + c.colSpan - 1);
+    if (!t.borderless)
     for (let i = r0; i < r0 + c.rowSpan; i++)
       for (let j = c0; j < c0 + c.colSpan; j++) ws.getRow(i).getCell(j).border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
   }
@@ -71,8 +72,7 @@ export async function pdfToXlsx(pdf: PDFDocumentProxy, pdfjs: PdfJsLib, onProgre
     onProgress(i, pdf.numPages);
     const data = await extractPage(pdf, i, pdfjs);
     const ws = wb.addWorksheet(`Page ${i}`);
-    const tables = detectTables(data.hlines, data.vlines);
-    const rest = fillTables(tables, data.runs);
+    const { tables, rest } = findTables(data);
 
     // body text and tables go down the sheet in the order they appear on the page
     let row = 1;

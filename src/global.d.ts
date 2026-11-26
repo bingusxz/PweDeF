@@ -18,6 +18,7 @@ declare global {
       saveFile(defaultName: string, data: Uint8Array, filters?: FileFilter[]): Promise<string | null>;
       chooseFolder(): Promise<string | null>;
       writeFile(filePath: string, data: Uint8Array): Promise<string>;
+      printPages(pages: { url: string; w: number; h: number }[]): Promise<string>;
       writeInFolder(folder: string, name: string, data: Uint8Array): Promise<string>;
       showItem(path: string): Promise<void>;
       version(): Promise<string>;
@@ -27,7 +28,7 @@ declare global {
       installUpdate(): Promise<void>;
       checkUpdates(): Promise<{ status: 'dev' | 'latest' | 'downloading' | 'error'; message: string }>;
       matchFont(pdfName: string): Promise<{ family: string; bold: boolean; italic: boolean; file: string; exact: boolean } | null>;
-      loadFont(q: { family: string; bold: boolean; italic: boolean }): Promise<{ data: Uint8Array; exact: boolean } | null>;
+      loadFont(q: { family: string; bold: boolean; italic: boolean }): Promise<{ data: Uint8Array; exact: boolean; italic?: boolean } | null>;
       listFonts(): Promise<string[]>;
       convertCaps(): Promise<{ office: boolean; libreoffice: boolean }>;
       officeToPdf(kind?: 'word' | 'excel' | 'ppt'): Promise<{ name: string; data?: Uint8Array; error?: string }[]>;

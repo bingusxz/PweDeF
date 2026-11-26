@@ -133,13 +133,31 @@ ipcMain.handle('fs:readPdf', async (_e, p) => {
   return readPdf(p);
 });
 
+/** Write a file, waiting a moment if another program (a viewer, a sync tool, antivirus) has it locked. */
+async function safeWrite(file, data) {
+  const buf = Buffer.from(data);
+  for (let i = 0; ; i++) {
+    try {
+      await fs.writeFile(file, buf);
+      return;
+    } catch (e) {
+      if (['EBUSY', 'EPERM', 'EACCES'].includes(e.code) && i < 4) {
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      if (['EBUSY', 'EPERM', 'EACCES'].includes(e.code)) throw new Error('FILE_LOCKED: ' + path.basename(file));
+      throw e;
+    }
+  }
+}
+
 ipcMain.handle('dialog:saveFile', async (_e, { defaultName, data, filters }) => {
   const res = await dialog.showSaveDialog(win, {
     defaultPath: defaultName,
     filters: filters || [{ name: 'PDF', extensions: ['pdf'] }],
   });
   if (res.canceled || !res.filePath) return null;
-  await fs.writeFile(res.filePath, Buffer.from(data));
+  await safeWrite(res.filePath, data);
   return res.filePath;
 });
 
@@ -149,7 +167,7 @@ ipcMain.handle('dialog:chooseFolder', async () => {
 });
 
 ipcMain.handle('fs:writeFile', async (_e, { filePath, data }) => {
-  await fs.writeFile(filePath, Buffer.from(data));
+  await safeWrite(filePath, data);
   return filePath;
 });
 
@@ -158,6 +176,22 @@ ipcMain.handle('fs:writeInFolder', async (_e, { folder, name, data }) => {
   const target = path.join(folder, safe);
   await fs.writeFile(target, Buffer.from(data));
   return target;
+});
+
+// Printing: the pages arrive as pictures, are laid out one per sheet at their own size, and go to the system print box.
+ipcMain.handle('print:pages', async (_e, pages) => {
+  const css = pages.map((p, i) => `@page p${i} { size: ${p.w}pt ${p.h}pt; margin: 0 } .p${i} { page: p${i}; width: ${p.w}pt; height: ${p.h}pt }`).join('
+');
+  const body = pages.map((p, i) => `<img class="pg p${i}" src="${p.url}">`).join('');
+  const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}img.pg{display:block;break-after:page}img.pg:last-child{break-after:auto}${css}</style>${body}`;
+  const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  try {
+    await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    await new Promise((r) => setTimeout(r, 300));
+    return await new Promise((resolve) => w.webContents.print({ silent: false, printBackground: true }, (ok, why) => resolve(ok ? 'ok' : why === 'cancelled' || why === 'Print job canceled' ? 'cancelled' : why || 'failed')));
+  } finally {
+    w.destroy();
+  }
 });
 
 // ---------- conversions ----------
@@ -253,17 +287,51 @@ let fontAliases;
 async function readFontAliases(index) {
   const aliases = new Map();
   const fontkit = require('@pdf-lib/fontkit');
-  for (const face of index.values()) {
-    try {
-      const font = fontkit.create(await fs.readFile(face.file));
-      for (const name of [font.postscriptName, font.fullName]) {
-        if (name) aliases.set(normFont(name), face);
-      }
-    } catch {
-      // Some registry entries point to removed or unsupported files.
-    }
+  // The internal names of every installed font are remembered between runs (keyed by file, size and date),
+  // so only fonts that are new since last time have to be opened.
+  const cacheFile = path.join(app.getPath('userData'), 'font-names.json');
+  let cache = {};
+  try {
+    cache = JSON.parse(await fs.readFile(cacheFile, 'utf8'));
+  } catch {
+    /* first run */
   }
+  const next = {};
+  let dirty = false;
+  let n = 0;
+  for (const face of index.values()) {
+    let names;
+    try {
+      const st = await fs.stat(face.file);
+      const key = `${face.file}|${st.size}|${Math.round(st.mtimeMs)}`;
+      if (cache[key]) names = cache[key];
+      else {
+        const font = fontkit.create(await fs.readFile(face.file));
+        names = [font.postscriptName, font.fullName].filter(Boolean);
+        dirty = true;
+      }
+      next[key] = names;
+    } catch {
+      continue; // Some registry entries point to removed or unsupported files.
+    }
+    for (const name of names) aliases.set(normFont(name), face);
+    // opening a font is CPU work: give the window a turn every few files so the app never freezes
+    if (++n % 8 === 0) await new Promise((r) => setImmediate(r));
+  }
+  if (dirty || Object.keys(cache).length !== Object.keys(next).length) fs.writeFile(cacheFile, JSON.stringify(next)).catch(() => {});
   return aliases;
+}
+
+/** Get the font lists ready in the background, so the first text edit does not wait for them. */
+function warmFonts() {
+  setTimeout(() => {
+    try {
+      const idx = buildFontIndex();
+      fontAliases ??= readFontAliases(idx).catch(() => new Map());
+    } catch {
+      /* it will be built on first use instead */
+    }
+  }, 1200);
 }
 
 async function matchPdfFont(pdfName) {
@@ -303,7 +371,7 @@ ipcMain.handle('fonts:load', async (_e, { family, bold, italic }) => {
   const hit = idx.get(k + (bold ? '|b' : '') + (italic ? '|i' : '')) || idx.get(k + (bold ? '|b' : '')) || idx.get(k);
   if (!hit) return null;
   try {
-    return { data: new Uint8Array(await fs.readFile(hit.file)), exact: hit.bold === !!bold && hit.italic === !!italic };
+    return { data: new Uint8Array(await fs.readFile(hit.file)), exact: hit.bold === !!bold && hit.italic === !!italic, italic: !!hit.italic };
   } catch {
     return null;
   }
@@ -393,7 +461,8 @@ ipcMain.handle('app:checkUpdates', async () => {
 });
 
 // ---------- Lifecycle ----------
-const gotLock = app.requestSingleInstanceLock();
+// PWEDEF_TEST lets an automated check run next to a copy that is already open
+const gotLock = process.env.PWEDEF_TEST && !app.isPackaged ? true : app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
@@ -417,6 +486,7 @@ if (!gotLock) {
     });
 
     Menu.setApplicationMenu(null);
+    warmFonts();
     pendingFiles.push(...pdfArgs(process.argv.slice(1)));
     createWindow();
     setupAutoUpdate();
