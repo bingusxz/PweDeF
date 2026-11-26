@@ -1,3 +1,5 @@
+import { noteError } from './report';
+
 type Kind = 'info' | 'ok' | 'error';
 export interface ToastMsg {
   id: number;
@@ -9,6 +11,7 @@ const listeners = new Set<L>();
 let n = 0;
 
 export function toast(text: string, kind: Kind = 'info') {
+  if (kind === 'error') noteError(text);
   const t = { id: ++n, text, kind };
   listeners.forEach((l) => l(t));
 }

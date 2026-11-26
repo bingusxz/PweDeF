@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Modal } from './Modal';
 import { BrandName } from './Logo';
+import { ReportForm } from './ReportForm';
 import { HELP } from '../help/helpContent';
 import { AUTHOR, LICENSES, PROJECT_URL, TERMS, TERMS_VERSION } from '../help/terms';
 
-type Pick = { kind: 'topic'; id: string } | { kind: 'terms' } | { kind: 'licenses' } | { kind: 'about' };
+type Pick = { kind: 'topic'; id: string } | { kind: 'terms' } | { kind: 'licenses' } | { kind: 'about' } | { kind: 'report' };
 
 /** Help center: how-tos for every tool, shortcuts, troubleshooting, the terms and the open-source licenses. */
-export function HelpDialog({ onClose, onTour, version, initial }: { onClose: () => void; onTour: () => void; version: string; initial?: string }) {
+export function HelpDialog({ onClose, onTour, version, initial, fileName, pageCount }: { onClose: () => void; onTour: () => void; version: string; initial?: string; fileName?: string; pageCount?: number }) {
   const [upd, setUpd] = useState('');
-  const [pick, setPick] = useState<Pick>(initial ? { kind: 'topic', id: initial } : { kind: 'topic', id: 'start' });
+  const [pick, setPick] = useState<Pick>(initial === 'report' ? { kind: 'report' } : initial ? { kind: 'topic', id: initial } : { kind: 'topic', id: 'start' });
   const groups = useMemo(() => {
     const out: { name: string; items: typeof HELP }[] = [];
     for (const t of HELP) {
@@ -37,6 +38,10 @@ export function HelpDialog({ onClose, onTour, version, initial }: { onClose: () 
               ))}
             </div>
           ))}
+          <div className="help-group">Feedback</div>
+          <button className={`help-link ${pick.kind === 'report' ? 'on' : ''}`} onClick={() => setPick({ kind: 'report' })}>
+            Report a problem
+          </button>
           <div className="help-group">About</div>
           <button className={`help-link ${pick.kind === 'terms' ? 'on' : ''}`} onClick={() => setPick({ kind: 'terms' })}>
             Terms of use
@@ -73,6 +78,7 @@ export function HelpDialog({ onClose, onTour, version, initial }: { onClose: () 
               )}
             </>
           )}
+          {pick.kind === 'report' && <ReportForm version={version} fileName={fileName} pageCount={pageCount} />}
           {pick.kind === 'terms' && (
             <>
               <h3>Terms of use</h3>

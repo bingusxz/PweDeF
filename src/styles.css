@@ -3685,3 +3685,10 @@ g.svg-annot.interactive {
 .view-switch { display: inline-flex; border: 1px solid var(--rule-2); border-radius: 3px; overflow: hidden; margin-right: 10px; }
 .view-switch button { padding: 1px 10px; font-size: 12px; background: transparent; border: 0; border-radius: 0; }
 .view-switch button.on { background: var(--copy-yellow); font-weight: 600; }
+
+/* Report a problem */
+.help-body textarea { width: 100%; resize: vertical; font: inherit; }
+.report-details { font: 11.5px/1.45 var(--typed); background: rgba(255, 255, 255, 0.55); border: 1px solid var(--rule-2); padding: 8px 10px; margin: 6px 0; white-space: pre-wrap; max-height: 150px; overflow: auto; }
+.help-body label:not(.check) { display: block; margin: 12px 0 4px; }
+.help-body select, .help-body textarea, .help-body input:not([type='checkbox']) { display: block; width: 100%; box-sizing: border-box; }
+.help-body .report-details + p { margin-top: 8px; }

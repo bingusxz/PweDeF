@@ -429,6 +429,7 @@ export default function App() {
       {helpOpen && (
         <HelpDialog
           version={version}
+          fileName={activeTab?.name}
           onClose={() => setHelpOpen(false)}
           onTour={() => {
             setHelpOpen(false);

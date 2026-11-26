@@ -29,7 +29,7 @@ export const TERMS: TermsSection[] = [
     title: '3. Your documents and your privacy',
     body: [
       'Your files are opened, edited and converted on this computer. PweDeF does not upload your documents anywhere, and it does not collect usage statistics or track what you do.',
-      "A few things do use the internet, only when you use them: checking for and downloading app updates (from the project's releases on GitHub); downloading the language data for OCR in languages other than English and Filipino; and \"Web page to PDF\", which loads the web address you type.",
+      "A few things do use the internet, only when you use them: checking for and downloading app updates (from the project's releases on GitHub); downloading the language data for OCR in languages other than English and Filipino; and \"Web page to PDF\", which loads the web address you type; and Report a problem, which sends the message you wrote (and, if you leave it ticked, the technical details shown on the form) to the developer only when you press Send.",
       'Word, Excel and PowerPoint to PDF use Microsoft Office or LibreOffice installed on this computer.',
       "PweDeF keeps a list of recently opened files, your saved signatures and stamps, and your settings on this computer only, in the app's own storage for your Windows account.",
     ],

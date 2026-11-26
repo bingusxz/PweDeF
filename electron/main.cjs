@@ -178,6 +178,25 @@ ipcMain.handle('fs:writeInFolder', async (_e, { folder, name, data }) => {
   return target;
 });
 
+// Problem reports go to a small web address owned by the developer (set in REPORT_URL), which forwards them by email.
+// The address of the inbox lives only on that side, so it is never in the app.
+const REPORT_URL = '';
+ipcMain.handle('report:send', async (_e, { subject, text }) => {
+  if (!REPORT_URL) return { ok: false, error: 'not-configured' };
+  try {
+    const res = await fetch(REPORT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ subject: String(subject).slice(0, 120), text: String(text).slice(0, 8000), app: app.getVersion() }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(20000),
+    });
+    return res.ok ? { ok: true } : { ok: false, error: 'http-' + res.status };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
+});
+
 // Printing: the pages arrive as pictures, are laid out one per sheet at their own size, and go to the system print box.
 ipcMain.handle('print:pages', async (_e, pages) => {
   const css = pages.map((p, i) => `@page p${i} { size: ${p.w}pt ${p.h}pt; margin: 0 } .p${i} { page: p${i}; width: ${p.w}pt; height: ${p.h}pt }`).join(' ');

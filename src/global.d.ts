@@ -18,6 +18,7 @@ declare global {
       saveFile(defaultName: string, data: Uint8Array, filters?: FileFilter[]): Promise<string | null>;
       chooseFolder(): Promise<string | null>;
       writeFile(filePath: string, data: Uint8Array): Promise<string>;
+      sendReport(r: { subject: string; text: string }): Promise<{ ok: boolean; error?: string }>;
       printPages(pages: { url: string; w: number; h: number }[]): Promise<string>;
       writeInFolder(folder: string, name: string, data: Uint8Array): Promise<string>;
       showItem(path: string): Promise<void>;
