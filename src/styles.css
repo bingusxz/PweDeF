@@ -3742,3 +3742,9 @@ g.svg-annot.interactive {
 .home-rail .rail-btn { text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 500; padding: 9px 12px; }
 .home-rail .rail-btn svg { color: var(--serial); }
 .recent-open .log-folder { direction: ltr !important; }
+
+/* All tools: three explicit, evenly filled columns */
+.home-v2 .hub-panel.form-set { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); columns: auto; gap: 14px; align-items: start; }
+.home-v2 .form-set .form-col { display: block; }
+@media (max-width: 1000px) { .home-v2 .hub-panel.form-set { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .home-v2 .hub-panel.form-set { grid-template-columns: 1fr; } }

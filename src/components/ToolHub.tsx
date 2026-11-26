@@ -30,9 +30,16 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
       { a: 'sigCheck', icon: 'fileCheck', title: 'Check signatures', desc: 'Who signed, was it changed', isNew: true },
       { a: 'protect', icon: 'lock', title: 'Protect PDF', desc: 'Password and permissions (AES-256)', isNew: true },
       { a: 'redact', icon: 'redact', title: 'Redact', desc: 'Remove sensitive content for good' },
+    ],
+  },
+  {
+    title: 'Label & mark',
+    stock: 'green',
+    tools: [
       { a: 'watermark', icon: 'water', title: 'Watermark', desc: 'Text across every page' },
       { a: 'numbers', icon: 'hash', title: 'Page numbers', desc: 'Page or Bates numbering' },
       { a: 'headers', icon: 'hash', title: 'Headers and footers', desc: 'Date, file name, page of total', isNew: true },
+      { a: 'properties', icon: 'info', title: 'Properties', desc: 'Title, author, keywords' },
     ],
   },
   {
@@ -56,6 +63,7 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
       { a: 'pages', icon: 'organize', title: 'Organize pages', desc: 'Reorder, rotate, delete pages' },
       { a: 'crop', icon: 'fit', title: 'Crop pages', desc: 'Trim the margins', isNew: true },
       { a: 'sheets', icon: 'copy', title: 'Booklet and n-up', desc: 'Several pages per sheet, or a folded booklet', isNew: true },
+      { a: 'compare', icon: 'columns', title: 'Compare PDFs', desc: 'Find what changed between two files', isNew: true },
     ],
   },
   {
@@ -71,15 +79,13 @@ const SECTIONS: { title: string; stock: 'white' | 'yellow' | 'blue' | 'pink' | '
   },
   {
     title: 'Finish & batch',
-    stock: 'green',
+    stock: 'white',
     tools: [
       { a: 'compress', icon: 'minimize', title: 'Optimize', desc: 'Clean up the file' },
       { a: 'ocr', icon: 'ocr', title: 'Recognize text (OCR)', desc: 'Make scans searchable' },
       { a: 'pdfa', icon: 'fileCheck', title: 'PDF/A archive copy', desc: 'For long-term keeping', isNew: true },
       { a: 'flatten', icon: 'layers2', title: 'Flatten', desc: 'Lock fields and markup in' },
-      { a: 'compare', icon: 'columns', title: 'Compare PDFs', desc: 'Find what changed between two files', isNew: true },
       { a: 'batch', icon: 'batch', title: 'Batch process', desc: 'One action on many files' },
-      { a: 'properties', icon: 'info', title: 'Properties', desc: 'Title, author, keywords' },
     ],
   },
 ];
@@ -99,7 +105,8 @@ const MERGE_SPLIT: HubAction[] = ['merge', 'split', 'pages', 'crop', 'sheets', '
 
 /** Left: working on a PDF. Right: converting into and out of PDF. */
 const COLUMNS = [
-  ['Edit & sign', 'Organize', 'Finish & batch'],
+  ['Edit & sign', 'Label & mark'],
+  ['Organize', 'Finish & batch'],
   ['Convert to PDF', 'Convert from PDF'],
 ];
 
